@@ -128,6 +128,38 @@ class TestMatching(unittest.TestCase):
         self.assertEqual(v_res['lsr'], '1')
         self.assertEqual(v_res['cls'], 'Расхождение единиц')
 
+    def test_document_compatibility_guard(self):
+        # 1. Согласованные документы (одинаковый проект / раздел)
+        vor_compat = [
+            Item('VOR', 1, '1', '', 'Монтаж извещателей пожарных дымовых', 'шт', 20.0),
+            Item('VOR', 2, '2', '', 'Прокладка кабеля КПСЭнг-FRLS 1х2х0.75', 'м', 150.0),
+            Item('VOR', 3, '3', '', 'Монтаж прибора приемно-контрольного', 'шт', 1.0),
+        ]
+        lsr_compat = [
+            Item('LSR', 1, '1', 'ГЭСН-1', 'Извещатель пожарный дымовой оптико-электронный', 'шт', 20.0),
+            Item('LSR', 2, '2', 'ГЭСН-2', 'Проводка кабелей в каналах: КПСЭнг 1х2х0.75', '100 м', 1.5),
+            Item('LSR', 3, '3', 'ГЭСН-3', 'Прибор приемно-контрольный охранно-пожарный', 'шт', 1.0),
+        ]
+        is_ok, ratio, msg = match.check_document_compatibility(vor_compat, lsr_compat)
+        self.assertTrue(is_ok)
+        self.assertGreater(ratio, 0.5)
+
+        # 2. Несовместимые документы (пожарная сигнализация vs земляные/дорожные работы)
+        lsr_mismatch = [
+            Item('LSR', 1, '1', 'ГЭСН-10', 'Разработка грунта экскаватором в отвал', '1000 м3', 1.2),
+            Item('LSR', 2, '2', 'ГЭСН-11', 'Устройство подстилающих слоев из щебня', 'м3', 85.0),
+            Item('LSR', 3, '3', 'ГЭСН-12', 'Асфальтирование покрытий мелкозернистой смесью', '100 м2', 4.5),
+        ]
+        is_ok, ratio, msg = match.check_document_compatibility(vor_compat, lsr_mismatch)
+        self.assertFalse(is_ok)
+        self.assertLess(ratio, 0.25)
+        self.assertIn("критически низкое", msg)
+
+        # 3. Пустые входные данные
+        is_ok, ratio, msg = match.check_document_compatibility([], lsr_compat)
+        self.assertFalse(is_ok)
+        self.assertEqual(ratio, 0.0)
+
 
 class TestEvaluationAndPerturb(unittest.TestCase):
     """Тесты проверочного контура и расчета метрик."""

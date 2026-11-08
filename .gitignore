@@ -16,6 +16,8 @@ __pycache__/
 
 # Кэш ответов модели и временные файлы
 results/llm_cache.json
+results/*_backup.json
+results/clean_test.csv
 llm_cache.json
 *.tmp
 

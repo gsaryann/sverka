@@ -97,6 +97,40 @@ def similarity(vor: List[Item], lsr: List[Item]) -> np.ndarray:
     return (A @ B.T).toarray()
 
 
+def check_document_compatibility(vor: List[Item], lsr: List[Item],
+                                 min_candidate_sim: float = 0.25,
+                                 min_valid_ratio: float = 0.25) -> Tuple[bool, float, str]:
+    """Проверяет глобальную смысловую совместимость двух документов (Project Mismatch Guard).
+
+    Предотвращает нецелевой расход токенов языковой модели, если пользователь случайно
+    загрузил файлы от двух совершенно разных проектов или несвязанных разделов работ.
+    """
+    if not vor or not lsr:
+        return False, 0.0, "Один из документов не содержит позиций для сопоставления."
+
+    sim = similarity(vor, lsr)
+    if sim.size == 0:
+        return False, 0.0, "Матрица сходства пуста."
+
+    max_sims = sim.max(axis=1)
+    valid_ratio = float(np.mean(max_sims >= min_candidate_sim))
+    avg_sim = float(np.mean(max_sims))
+
+    is_compatible = bool(valid_ratio >= min_valid_ratio)
+    if not is_compatible:
+        msg = (
+            f"Семантическое перекрытие документов критически низкое: лишь {valid_ratio * 100:.1f}% "
+            f"позиций имеют хотя бы отдаленного кандидата (среднее сходство {avg_sim * 100:.1f}%). "
+            f"Вероятно, загружены файлы от разных объектов или несвязанных разделов работ."
+        )
+    else:
+        msg = (
+            f"Документы согласованы: {valid_ratio * 100:.1f}% позиций имеют кандидатов "
+            f"(среднее сходство {avg_sim * 100:.1f}%)."
+        )
+    return is_compatible, valid_ratio, msg
+
+
 def evaluate_pair(v: Item, l: Item, text_sim: float, tol: float = 1e-3) -> MatchCandidate:
     """Оценивает пару позиций по комплексу независимых признаков."""
     tokens_v = _tokenize(v.name)

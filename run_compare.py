@@ -84,6 +84,14 @@ def main():
     _warn_duplicates(lsr, 'ЛСР')
 
     # Запуск сопоставления
+    is_compat, overlap_ratio, compat_msg = match.check_document_compatibility(vor, lsr)
+    if not is_compat:
+        print(f"\n[ПРЕДОХРАНИТЕЛЬ СОВМЕСТИМОСТИ ДОКУМЕНТОВ]:")
+        print(f"  {compat_msg}")
+        if use_llm:
+            print("  ВЫЗОВ ИИ ЗАБЛОКИРОВАН: предотвращен нецелевой расход бюджета токенов на несогласованные документы.")
+            use_llm = False
+
     if use_llm_only:
         from llm_resolver import model_only_results
         results = model_only_results(vor, lsr)

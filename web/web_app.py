@@ -159,6 +159,16 @@ def api_compare():
         vor = parse_vor(str(vor_path))
         lsr = parse_lsr(str(lsr_path))
 
+        is_compat, overlap_ratio, compat_msg = match.check_document_compatibility(vor, lsr)
+        warning_msg = None
+        if not is_compat:
+            warning_msg = (
+                f"{compat_msg} Обращение к ИИ-арбитру заблокировано: "
+                "предотвращен нецелевой расход бюджета токенов на несогласованные документы."
+            )
+            if mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only'):
+                mode = 'algo'
+
         llm_stats = None
 
         if mode == 'model_only':
@@ -192,7 +202,11 @@ def api_compare():
         if llm_stats:
             stats['llm_stats'] = llm_stats
 
-        return jsonify({'stats': stats, 'rows': rows})
+        resp_payload = {'stats': stats, 'rows': rows}
+        if warning_msg:
+            resp_payload['warning'] = warning_msg
+
+        return jsonify(resp_payload)
 
     except Exception as e:
         return jsonify({'error': f'{type(e).__name__}: {str(e)}'}), 500
@@ -244,6 +258,14 @@ def api_compare_stream():
         vor = parse_vor(str(vor_path))
         lsr = parse_lsr(str(lsr_path))
 
+        is_compat, overlap_ratio, compat_msg = match.check_document_compatibility(vor, lsr)
+        warning_msg = None
+        if not is_compat:
+            warning_msg = (
+                f"{compat_msg} Обращение к ИИ-арбитру заблокировано: "
+                "предотвращен нецелевой расход бюджета токенов на несогласованные документы."
+            )
+
     except Exception as e:
         for p in tmp_files_to_clean:
             try:
@@ -255,16 +277,20 @@ def api_compare_stream():
     def generate():
         global LAST_RESULTS, ORIG_RESULTS
         try:
+            stream_mode = mode
+            if not is_compat and stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only'):
+                stream_mode = 'algo'
+
             # 1. Мгновенный расчет SmartMatcher (0.05 сек)
-            if mode == 'legacy':
+            if stream_mode == 'legacy':
                 results = baseline_legacy.match(vor, lsr)
-            elif mode == 'model_only':
+            elif stream_mode == 'model_only':
                 from llm_resolver import model_only_results
                 results = model_only_results(vor, lsr)
             else:
                 results = match.match(vor, lsr, thr=thr, min_text_threshold=0.20)
 
-            llm_needed = mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only')
+            llm_needed = (stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only')) and is_compat
             init_rows, init_stats = format_rows(results, vor, lsr, llm_active=llm_needed)
             LAST_RESULTS = init_rows
             ORIG_RESULTS = copy.deepcopy(init_rows)
@@ -277,14 +303,14 @@ def api_compare_stream():
             )
 
             # Передаем первичное состояние сопоставления клиенту мгновенно
-            yield f"data: {json.dumps({'type': 'init', 'stats': init_stats, 'rows': init_rows, 'ambig_count': ambig_count, 'mode': mode, 'needs_llm': bool(llm_needed and ambig_count > 0)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'init', 'stats': init_stats, 'rows': init_rows, 'ambig_count': ambig_count, 'mode': stream_mode, 'needs_llm': bool(llm_needed and ambig_count > 0), 'warning': warning_msg}, ensure_ascii=False)}\n\n"
 
             # 2. Потоковый арбитраж спорных позиций Алисой
             if llm_needed and ambig_count > 0:
                 from llm_resolver import YandexClient, resolve
                 client = YandexClient()
                 cache_path = str(RESULTS_DIR / "llm_cache.json")
-                m_mode = 'model_only' if mode == 'model_only' else ('weak_only' if mode == 'hybrid_weak' else 'arbitration')
+                m_mode = 'model_only' if stream_mode == 'model_only' else ('weak_only' if stream_mode == 'hybrid_weak' else 'arbitration')
 
                 q = queue.Queue()
 
@@ -314,7 +340,8 @@ def api_compare_stream():
                             'type': 'done',
                             'rows': fin_rows,
                             'stats': fin_stats,
-                            'llm_stats': llm_stats
+                            'llm_stats': llm_stats,
+                            'warning': warning_msg
                         })
                     except Exception as err:
                         q.put({'type': 'error', 'error': str(err)})
@@ -345,7 +372,7 @@ def api_compare_stream():
                             break
                         yield ": ping\n\n"
             else:
-                yield f"data: {json.dumps({'type': 'done', 'rows': init_rows, 'stats': init_stats}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'rows': init_rows, 'stats': init_stats, 'warning': warning_msg}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"

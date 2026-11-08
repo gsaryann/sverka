@@ -29,6 +29,8 @@ function loadPreset(key) {
   document.getElementById('f-vor').value = '';
   document.getElementById('f-lsr').value = '';
   document.getElementById('p-label').textContent = key === 'set1' ? 'выбран Комплект 1' : 'выбран Комплект 2';
+  const guard = document.getElementById('w-guard-banner');
+  if (guard) guard.style.display = 'none';
 }
 
 // ================== ОПРЕДЕЛЕНИЕ СПОРНОСТИ (ПО BPMN) ==================
@@ -54,6 +56,12 @@ async function runCompare() {
   const thr = document.getElementById('w-thr').value;
   const fVor = document.getElementById('f-vor').files[0];
   const fLsr = document.getElementById('f-lsr').files[0];
+
+  const guard = document.getElementById('w-guard-banner');
+  if (guard) {
+    guard.style.display = 'none';
+    guard.textContent = '';
+  }
 
   if (!activePreset && (!fVor || !fLsr)) {
     alert('Пожалуйста, выберите оба файла или кликните быстрый тестовый комплект.');
@@ -92,6 +100,10 @@ async function runCompare() {
         alert('Ошибка: ' + (data.error || 'Не удалось выполнить'));
         return;
       }
+      if (data.warning && guard) {
+        guard.textContent = '⚠️ ' + data.warning;
+        guard.style.display = 'block';
+      }
       tableData = data.rows || [];
       renderSummary(data.stats, mode);
       sortCol = 'vor_num';
@@ -122,6 +134,11 @@ async function runCompare() {
 
           let msg;
           try { msg = JSON.parse(jsonStr); } catch (e) { continue; }
+
+          if (msg.warning && guard) {
+            guard.textContent = '⚠️ ' + msg.warning;
+            guard.style.display = 'block';
+          }
 
           if (msg.type === 'init') {
             tableData = msg.rows || [];
