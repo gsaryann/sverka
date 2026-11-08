@@ -92,6 +92,9 @@ class YandexClient:
             base_url=BASE_URL,
             project=self.folder_id,
         )
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self._tokens_lock = threading.Lock()
 
     def ask(self, system: str, user: str) -> str:
         """Отправляет запрос к модели Алисы."""
@@ -103,6 +106,13 @@ class YandexClient:
                 input=user,
                 max_output_tokens=1000,
             )
+            usage = getattr(resp, "usage", None)
+            if usage:
+                inp = getattr(usage, "input_tokens", 0) or 0
+                outp = getattr(usage, "output_tokens", 0) or 0
+                with self._tokens_lock:
+                    self.total_input_tokens += inp
+                    self.total_output_tokens += outp
             if hasattr(resp, "output_text") and resp.output_text:
                 return resp.output_text
             if hasattr(resp, "output") and resp.output:
@@ -119,6 +129,13 @@ class YandexClient:
                 {"role": "user", "content": user}
             ]
         )
+        usage = getattr(resp, "usage", None)
+        if usage:
+            inp = getattr(usage, "prompt_tokens", 0) or 0
+            outp = getattr(usage, "completion_tokens", 0) or 0
+            with self._tokens_lock:
+                self.total_input_tokens += inp
+                self.total_output_tokens += outp
         return resp.choices[0].message.content
 
 
@@ -585,4 +602,7 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
         ))
 
     stats["seconds"] = round(time.time() - t0, 1)
+    stats["input_tokens"] = getattr(client, "total_input_tokens", 0)
+    stats["output_tokens"] = getattr(client, "total_output_tokens", 0)
+    stats["total_tokens"] = stats["input_tokens"] + stats["output_tokens"]
     return out, stats

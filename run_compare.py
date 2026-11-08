@@ -115,6 +115,13 @@ def main():
               f"проверено коллизий: {st['ambiguities_checked']}, "
               f"подтверждено пар: {st['confirmed']}, переназначено: {st['reassigned']}, "
               f"отклонено («нет в смете»): {st['rejected']}, время: {st['seconds']} с")
+        if st.get("total_tokens"):
+            in_t = st["input_tokens"]
+            out_t = st["output_tokens"]
+            tot_t = st["total_tokens"]
+            cost_rub = (in_t / 1000.0) * 0.10 + (out_t / 1000.0) * 0.20
+            print(f"  Фактический расход токенов: входящих={in_t:,}, исходящих={out_t:,}, суммарно={tot_t:,}")
+            print(f"  Расчетная стоимость вызовов по тарифу Yandex AI: {cost_rub:.2f} ₽")
 
     rows: List[Dict[str, Any]] = []
 
