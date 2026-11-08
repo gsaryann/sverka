@@ -95,7 +95,7 @@ def make_set_from_pairs(base_pairs: List[Tuple[Item, Item]], seed: int = 1,
                 val = float(n.replace(',', '.'))
                 new_val = str(int(val + 5)) if val.is_integer() else f"{val + 1.5:.1f}"
                 it = replace(it, name=it.name.replace(n, new_val, 1))
-                cls = 'Расхождение по сути'
+                cls = 'Расхождение характеристик'
         elif r < 0.74 and it.unit in INCOMPATIBLE_UNITS:
             # Несовместимая единица измерения
             it = replace(it, unit=INCOMPATIBLE_UNITS[it.unit])

@@ -31,6 +31,8 @@ def norm_cls(c: Optional[str]) -> str:
         return 'Совпало'
     if 'проверка' in s.lower() or 'кандидат' in s.lower():
         return 'Требуется проверка'
+    if 'по сути' in s.lower() or 'характеристик' in s.lower():
+        return 'Расхождение характеристик'
     return s
 
 
