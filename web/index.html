@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>СверкаСмет | SmartMatcher</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="wrapper">
+    <header>
+      <div>
+        <h1>СверкаСмет <span style="font-size: 13px; font-weight: normal; color: #555;">| Интеллектуальный аудит ВОР и ЛСР</span></h1>
+      </div>
+      <div class="nav-tabs">
+        <div class="nav-tab active" onclick="switchTab('tab-work', this)">Рабочая сверка смет</div>
+        <div class="nav-tab" onclick="switchTab('tab-exp', this)">Эксперименты и бенчмарк (ВКР)</div>
+      </div>
+    </header>
+
+    <!-- ==================== ВКЛАДКА 1: РАБОЧАЯ СВЕРКА ==================== -->
+    <div id="tab-work" class="tab-content active">
+      <div class="form-box">
+        <div class="row">
+          <div class="col">
+            <label>1. Ведомость объемов работ (ВОР .xlsx):</label>
+            <input type="file" id="f-vor" accept=".xlsx">
+          </div>
+          <div class="col">
+            <label>2. Локальный сметный расчет (ЛСР .xlsx):</label>
+            <input type="file" id="f-lsr" accept=".xlsx">
+          </div>
+          <div class="col">
+            <label>3. Режим сопоставления:</label>
+            <select id="w-mode">
+              <option value="algo" selected>SmartMatcher (детерминированный алгоритм v2)</option>
+              <option value="hybrid">SmartMatcher + Алиса (Двухуровневый арбитраж коллизий)</option>
+              <option value="hybrid_weak">SmartMatcher + Алиса (Только слабый текст — baseline)</option>
+              <option value="model_only">Только LLM (экспериментальный)</option>
+            </select>
+          </div>
+          <div class="col" style="width: 110px;">
+            <label>Порог сходства:</label>
+            <input type="number" id="w-thr" value="0.50" min="0.20" max="0.90" step="0.05">
+          </div>
+          <div class="col">
+            <button class="btn-primary" id="btn-compare" onclick="runCompare()">Сверить документы</button>
+          </div>
+          <span id="w-loading" style="display:none; color:#2563eb; font-weight:600; margin-left:8px;">Выполняется расчет...</span>
+        </div>
+
+        <div class="presets-line">
+          Быстрый выбор реального документа:
+          <a onclick="loadPreset('set1')">Комплект 1 (Дворец молодёжи, 86 поз.)</a> | 
+          <a onclick="loadPreset('set2')">Комплект 2 (Ремонт помещений, 83 поз.)</a>
+          <b id="p-label" style="margin-left: 8px; color: #111;"></b>
+        </div>
+      </div>
+
+      <!-- Сводная строка -->
+      <div class="summary-box" id="w-summary" style="display: none;">
+        <div class="summary-left">
+          <span>Всего строк: <b id="ws-total">0</b></span>
+          <span>Совпало: <b id="ws-match" style="color: #15803d;">0</b></span>
+          <span>Расхождения: <b id="ws-diff" style="color: #b45309;">0</b></span>
+          <span>Без пары: <b id="ws-none" style="color: #64748b;">0</b></span>
+          <span style="border-left: 1px solid #ccc; padding-left: 10px;">
+            ⚠️ Спорных пар: <b id="ws-ambig" style="color: #dc2626;">0</b>
+          </span>
+          <span>Решено сметчиком: <b id="ws-decided" style="color: #166534;">0</b></span>
+          <span id="ws-ai-box" style="display: none;">Решено Алисой: <b id="ws-ai" style="color: #5b21b6;">0</b></span>
+        </div>
+        <div>
+          <a href="/api/download_csv" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
+            Скачать результат в CSV (Excel)
+          </a>
+        </div>
+      </div>
+
+      <!-- Панель фильтров и сортировки -->
+      <div class="filter-bar" id="w-filter-bar" style="display: none;">
+        <div class="filter-group">
+          <div class="filter-item">
+            <label>Статус:</label>
+            <select id="flt-status" onchange="applyFiltersAndSort()">
+              <option value="all">Все статусы</option>
+              <option value="ambig" style="font-weight: bold; color: #b91c1c;">⚠️ Требуют решения сметчика (спорные)</option>
+              <option value="collision" style="color: #b45309; font-weight:600;">⚡ Коллизии алгоритма (конкуренция / объем / параметры)</option>
+              <option value="diff">Все расхождения</option>
+              <option value="match">Совпало (точно / единицы)</option>
+              <option value="missing">Без пары (нет в смете/ВОР)</option>
+              <option value="decided">Решено сметчиком (подтверждено/отклонено)</option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <label>Сходство:</label>
+            <select id="flt-sim" onchange="applyFiltersAndSort()">
+              <option value="all">Любое</option>
+              <option value="high">Высокое (≥ 80%)</option>
+              <option value="mid">Среднее (40% – 79%)</option>
+              <option value="low">Низкое (< 40%)</option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <input type="checkbox" id="flt-ai" onchange="applyFiltersAndSort()">
+            <label for="flt-ai" style="font-weight: normal; cursor: pointer;">Только выбор ИИ</label>
+          </div>
+
+          <button class="btn-reset" onclick="resetFilters()">Сбросить</button>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-item">
+            <label>Поиск:</label>
+            <input type="text" id="flt-search" placeholder="Наименование, шифр..." oninput="applyFiltersAndSort()" style="width: 220px;">
+          </div>
+          <span style="font-size: 11px; color: #666;">Показано: <b id="flt-count">0</b></span>
+        </div>
+      </div>
+
+      <!-- Таблица результатов -->
+      <div id="w-table-wrap">
+        <div id="w-empty" style="text-align:center; padding: 40px; color:#777; border: 1px solid #eee;">
+          Выберите файлы или нажмите тестовый комплект выше и нажмите «Сверить документы».
+        </div>
+        <table id="w-table" style="display: none;">
+          <thead>
+            <tr>
+              <th class="sortable" id="th-vor_num" onclick="handleSort('vor_num')" style="width: 55px;" title="Кликните для сортировки">ВОР №</th>
+              <th class="sortable" id="th-vor_name" onclick="handleSort('vor_name')" title="Кликните для сортировки">Позиция ВОР (проектная)</th>
+              <th class="sortable" id="th-lsr_num" onclick="handleSort('lsr_num')" style="width: 55px;" title="Кликните для сортировки">ЛСР №</th>
+              <th style="width: 110px;">Шифр расценки</th>
+              <th class="sortable" id="th-lsr_name" onclick="handleSort('lsr_name')" title="Кликните для сортировки">Расценка ЛСР (сметная)</th>
+              <th class="sortable" id="th-status" onclick="handleSort('status')" style="width: 170px;" title="Кликните для сортировки">Результат сверки</th>
+              <th class="sortable" id="th-sim" onclick="handleSort('sim')" style="width: 75px;" title="Кликните для сортировки">Сходство</th>
+              <th>Обоснование и расхождения</th>
+              <th style="width: 125px; text-align: center;">Решение сметчика (BPMN)</th>
+            </tr>
+          </thead>
+          <tbody id="w-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ==================== ВКЛАДКА 2: ЭКСПЕРИМЕНТЫ (ВКР) ==================== -->
+    <div id="tab-exp" class="tab-content">
+      <div class="form-box">
+        <div class="exp-title">Параметры научного эксперимента и стресс-тестирования</div>
+        
+        <div class="row" style="margin-bottom: 12px;">
+          <div class="col">
+            <label>Тестовый комплект для исследования:</label>
+            <select id="exp-preset">
+              <option value="set1" selected>Комплект 1: «Дворец молодёжи» (86 поз., подтверждённые ссылки)</option>
+              <option value="set2">Комплект 2: «Ремонт помещений» (83 поз., одинаковые формулировки)</option>
+            </select>
+          </div>
+          <div class="col">
+            <button class="btn-primary" id="btn-exp" onclick="runBenchmark()">Запустить научный эксперимент</button>
+          </div>
+          <span id="exp-loading" style="display:none; color:#2563eb; font-weight:600; margin-left:8px;">Выполняется бенчмарк...</span>
+        </div>
+
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 8px;">
+          <div class="checkbox-line">
+            <input type="checkbox" id="chk-shuffle">
+            <label for="chk-shuffle" style="font-weight: normal; cursor: pointer;">
+              <b>Перемешать порядок строк ВОР</b> (проверка того, что алгоритм не ориентируется на взаимное совпадение нумерации 1, 2, 3...)
+            </label>
+          </div>
+          <div class="checkbox-line">
+            <input type="checkbox" id="chk-stress" checked>
+            <label for="chk-stress" style="font-weight: normal; cursor: pointer;">
+              <b>Синтетический стресс-тест (Режим A, модуль <code>perturb.py</code>)</b>: внести синонимы («демонтаж»/«разборка»), масштабы единиц (100 м² <-> м²), ошибки объемов и удаленные позиции с расчетом эталона (Ground Truth).
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Результаты эксперимента -->
+      <div id="exp-results" style="display: none;">
+        <div class="exp-card">
+          <div class="exp-title">Сравнительная таблица методов (для дипломной работы)</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Метод сопоставления</th>
+                <th style="width: 120px;">Precision (Точность)</th>
+                <th style="width: 120px;">Recall (Полнота)</th>
+                <th style="width: 120px;">F1-Score</th>
+                <th style="width: 160px;">Точность классов расхождений</th>
+                <th style="width: 140px;">Обнаружение «Нет в ВОР»</th>
+              </tr>
+            </thead>
+            <tbody id="exp-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="exp-card">
+          <div class="exp-title">Матрица классификации расхождений (Эталон -> Предсказание алгоритма SmartMatcher)</div>
+          <p style="color: #555; font-size: 12px; margin-bottom: 8px;">
+            Показывает, сколько раз алгоритм безошибочно определил истинный тип строительного расхождения:
+          </p>
+          <table style="width: auto; min-width: 600px;">
+            <thead>
+              <tr>
+                <th>Истинный класс в эталоне</th>
+                <th>Определено алгоритмом</th>
+                <th style="width: 80px; text-align: right;">Количество</th>
+              </tr>
+            </thead>
+            <tbody id="conf-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# Секретные ключи
+.env
+.env.*
+
+# Кэш Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Среды разработки
+.vscode/
+.idea/
+
+# Кэш ответов модели и временные файлы
+results/llm_cache.json
+llm_cache.json
+*.tmp
+
