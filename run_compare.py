@@ -121,7 +121,7 @@ def main():
             tot_t = st["total_tokens"]
             cost_rub = (in_t / 1000.0) * 0.10 + (out_t / 1000.0) * 0.20
             print(f"  Фактический расход токенов: входящих={in_t:,}, исходящих={out_t:,}, суммарно={tot_t:,}")
-            print(f"  Расчетная стоимость вызовов по тарифу Yandex AI: {cost_rub:.2f} ₽")
+            print(f"  Расчетная стоимость вызовов по тарифу Yandex AI: {cost_rub:.2f} руб.")
 
     rows: List[Dict[str, Any]] = []
 
