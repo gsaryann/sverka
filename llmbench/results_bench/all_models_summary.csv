@@ -1,7 +1,7 @@
-provider;model_name;total_tasks;correct;accuracy_pct;wrong;missed;invalid_or_censored;network_errors;sec_avg;cost_run_rub;cost_per_call_rub;concurrency
-yandex_flash;Alice AI LLM Flash (Яндекс);27;22;81.5;5;0;0;0;3.39;2.397;0.0888;Да (10+ потоков)
-yandex_alice_full;Alice AI LLM Pro (Яндекс);27;22;81.5;4;1;0;0;3.36;12.258;0.4540;Да (10+ потоков)
-yandex_deepseek_v32;DeepSeek V3.2 (через Яндекс);27;22;81.5;3;2;0;0;6.89;15.351;0.5686;Да (10+ потоков)
-gigachat_pro;GigaChat-2-Pro (Сбер);27;0;0.0;0;0;25;2;0.67;0.000;0.0000;Нет (строго 1 поток)
-gigachat_max;GigaChat-2-Max / Флагман Ultra (Сбер);27;0;0.0;0;0;27;0;0.72;0.000;0.0000;Нет (строго 1 поток)
-gigachat_lite;GigaChat-2 Lite (Сбер);27;0;0.0;0;0;26;1;0.61;0.000;0.0000;Нет (строго 1 поток)
+provider;model_name;tasks_set;repeats;total_calls;correct;accuracy_pct;wrong;missed;invalid_or_refused;errors;sec_avg;cost_per_run_rub;cost_per_call_rub;stability
+yandex_flash;Alice AI LLM Flash (Яндекс);tasks_set1 (Top-5 кандидатов);3;81;66;81.5;12;3;0;0;3.95;2.392;0.0886;27/27 (100.0%)
+yandex_flash;Alice AI LLM Flash (Яндекс);tasks_set1_work (Все 26 кандидатов);3;66;30;45.5;30;6;0;0;3.58;4.601;0.2091;22/22 (100.0%)
+yandex_alice;Alice AI LLM (Яндекс);tasks_set1 (Top-5 кандидатов);1;27;22;81.5;4;1;0;0;3.36;12.258;0.4540;--
+yandex_deepseek;DeepSeek V3.2 (через Яндекс);tasks_set1 (Top-5 кандидатов);1;27;22;81.5;3;2;0;0;6.89;15.351;0.5686;--
+gigachat_3_ultra;GigaChat-3-Ultra (Сбер, чистый промпт);tasks_set1 (Top-5 кандидатов);1;27;12;44.4;4;0;11;0;0.85;0.000;0.0000;--
+gigachat_standard;GigaChat (стандартный промпт);tasks_set1 (Top-5 кандидатов);1;27;0;0.0;0;0;27;0;0.72;0.000;0.0000;--

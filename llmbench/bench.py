@@ -181,7 +181,7 @@ def judge(task, ans):
     return "false_pick"
 
 
-def run_provider(name, cfg, tasks, repeat, outdir):
+def run_provider(name, cfg, tasks, repeat, outdir, tag=""):
     client = make_client(cfg)
     rows, lat, tin, tout, errs = [], [], 0, 0, 0
     for rep in range(repeat):
@@ -203,7 +203,7 @@ def run_provider(name, cfg, tasks, repeat, outdir):
                              action=ans and ans["action"], cand=ans and ans["cand"], conf=ans and ans["conf"],
                              ok_idx=t["ok_idx"], sec=round(dt, 2), reason=(ans or {}).get("reason", text[:120] if text else "")))
     outdir.mkdir(exist_ok=True)
-    json.dump(rows, open(outdir / f"bench_{name}.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(rows, open(outdir / f"bench_{name}{tag}.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
     n = len([r for r in rows if r["verdict"] != "error"])
     cnt = lambda v, ans=None: sum(1 for r in rows if r["verdict"] == v)
@@ -249,7 +249,7 @@ def main():
     for n in names:
         print(f"-> {n} ...", flush=True)
         try:
-            res.append(run_provider(n, cfgs[n], tasks, a.repeat, Path(a.tasks).resolve().parent / "results_bench"))
+            res.append(run_provider(n, cfgs[n], tasks, a.repeat, Path(a.tasks).resolve().parent / "results_bench", "__" + Path(a.tasks).stem + (f"__x{a.repeat}" if a.repeat > 1 else "")))
         except Exception as e:
             print(f"   пропущено: {e}")
     cols = ["provider", "correct", "wrong", "missed", "abstain", "invalid", "safe_reject", "false_pick", "errors",
@@ -263,7 +263,7 @@ def main():
         print("correct — выбрана верная строка; wrong — выбрана другая; missed — отказ при верной строке в списке;")
         print("abstain — низкая уверенность (решает сметчик); safe_reject — верной строки нет в списке и модель отказалась;")
         print("false_pick — верной строки нет в списке, но модель выбрала другую; cost_run — стоимость одного прогона, руб.")
-        out = Path(a.tasks).resolve().parent / "results_bench" / "summary.csv"
+        out = Path(a.tasks).resolve().parent / "results_bench" / f"summary__{Path(a.tasks).stem}.csv"
         with open(out, "w", newline="", encoding="utf-8-sig") as f:
             w = csv.DictWriter(f, fieldnames=list(res[0].keys()), delimiter=";"); w.writeheader(); w.writerows(res)
         print("Сводка:", out)

@@ -1,0 +1,2 @@
+﻿provider;model;n;errors;correct;wrong;missed;abstain;invalid;safe_reject;false_pick;answerable;unanswerable;sec_avg;sec_p95;tok_in_avg;tok_out_avg;cost_run;cost_per_call;stable
+yandex_flash;gpt://{folder_id}/aliceai-llm-flash/latest;66;0;30;30;6;0;0;0;0;66;0;3.58;5.19;1958;66;4.6;0.2091;22/22
