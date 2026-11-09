@@ -106,7 +106,7 @@ class GigaChat:
         self.key = os.environ.get(cfg["api_key_env"], "").strip()
         if not self.key:
             raise RuntimeError(f"нет ключа {cfg['api_key_env']}")
-        self.scope = os.environ.get("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
+        self.scope = os.environ.get("GIGACHAT_SCOPE") or os.environ.get("SCOPE") or "GIGACHAT_API_PERS"
         self.model = cfg["model"]
         self.verify = os.environ.get("GIGACHAT_CA_BUNDLE") or False
         if self.verify is False:
