@@ -1,0 +1,31 @@
+{
+  "mock_oracle":      {"type": "mock", "mode": "oracle"},
+  "mock_confirm_all": {"type": "mock", "mode": "confirm_all"},
+  "mock_reject_all":  {"type": "mock", "mode": "reject_all"},
+
+  "yandex_flash": {"type": "openai", "base_url": "https://ai.api.cloud.yandex.net/v1",
+    "api_key_env": "YANDEX_API_KEY", "folder_env": "YANDEX_FOLDER_ID",
+    "model": "gpt://{folder}/aliceai-llm-flash/latest", "price_in": 100, "price_out": 200},
+  "yandex_alice_full": {"type": "openai", "base_url": "https://ai.api.cloud.yandex.net/v1",
+    "api_key_env": "YANDEX_API_KEY", "folder_env": "YANDEX_FOLDER_ID",
+    "model": "gpt://{folder}/aliceai-llm/latest", "price_in": 500, "price_out": 1200,
+    "_note": "цена пересчитана из долларового прейскуранта; сверить в кабинете"},
+  "yandex_deepseek_v32": {"type": "openai", "base_url": "https://ai.api.cloud.yandex.net/v1",
+    "api_key_env": "YANDEX_API_KEY", "folder_env": "YANDEX_FOLDER_ID",
+    "model": "gpt://{folder}/deepseek-v32/latest", "price_in": 500, "price_out": 800,
+    "_note": "ID модели проверить в Yandex AI Studio; цена пересчитана из долларового прейскуранта"},
+
+  "gigachat_lite": {"type": "gigachat", "api_key_env": "GIGACHAT_AUTH_KEY", "model": "GigaChat-2", "price_in": 65, "price_out": 65},
+  "gigachat_pro":  {"type": "gigachat", "api_key_env": "GIGACHAT_AUTH_KEY", "model": "GigaChat-2-Pro", "price_in": 500, "price_out": 500},
+  "gigachat_max":  {"type": "gigachat", "api_key_env": "GIGACHAT_AUTH_KEY", "model": "GigaChat-2-Max", "price_in": 650, "price_out": 650},
+
+  "cloudru_deepseek_v4_flash": {"type": "openai", "base_url": "https://foundation-models.api.cloud.ru/v1",
+    "api_key_env": "CLOUDRU_API_KEY", "model": "<ID из консоли Cloud.ru>", "price_in": 43.30, "price_out": 86.58,
+    "_note": "base_url и ID модели проверить в консоли Cloud.ru; цены с НДС из тарифа версии 260915"},
+  "cloudru_gigachat3_pro": {"type": "openai", "base_url": "https://foundation-models.api.cloud.ru/v1",
+    "api_key_env": "CLOUDRU_API_KEY", "model": "<ID из консоли Cloud.ru>", "price_in": 73.03, "price_out": 176.39},
+  "cloudru_gpt_oss_120b": {"type": "openai", "base_url": "https://foundation-models.api.cloud.ru/v1",
+    "api_key_env": "CLOUDRU_API_KEY", "model": "<ID из консоли Cloud.ru>", "price_in": 7.66, "price_out": 37.32},
+  "cloudru_qwen3_235b": {"type": "openai", "base_url": "https://foundation-models.api.cloud.ru/v1",
+    "api_key_env": "CLOUDRU_API_KEY", "model": "<ID из консоли Cloud.ru>", "price_in": 119.56, "price_out": 478.24}
+}

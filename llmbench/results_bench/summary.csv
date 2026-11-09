@@ -1,0 +1,3 @@
+﻿provider;model;n;errors;correct;wrong;missed;abstain;invalid;safe_reject;false_pick;answerable;unanswerable;sec_avg;sec_p95;tok_in_avg;tok_out_avg;cost_run;cost_per_call;stable
+yandex_alice_full;gpt://b1g91ckmo8khk7h35m1g/aliceai-llm/latest;27;0;22;4;1;0;0;0;0;27;0;3.36;4.35;763;60;12.258;0.454;
+yandex_deepseek_v32;gpt://b1g91ckmo8khk7h35m1g/deepseek-v32/latest;27;0;22;3;2;0;0;0;0;27;0;6.89;24.22;919;136;15.351;0.5686;

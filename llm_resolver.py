@@ -37,6 +37,67 @@ except ImportError:
 
 from parsers import Item
 from match import similarity, evaluate_pair
+from units import to_base
+
+WORK_PREFIXES = (
+    "монтаж", "установка", "демонтаж", "прокладка", "подключение",
+    "затягивание", "подвешивание", "разборка", "врезка", "окраска", "сборка", "устройство"
+)
+
+
+def is_work_item(name: str) -> bool:
+    """Определяет, описывает ли позиция работу (монтаж, прокладка и т.д.)."""
+    return (name or "").strip().lower().startswith(WORK_PREFIXES)
+
+
+def is_work_item_lsr(item) -> bool:
+    """Определяет, относится ли расценка ЛСР к работам (ГЭСН, ФЕР, ТЕР)."""
+    code = (getattr(item, "code", "") or "").upper().strip()
+    return code.startswith(("ГЭСН", "ФЕР", "ТЕР", "ТЭР", "ЕПР"))
+
+
+def rank_candidates_for_item(v: Item, i: int, candidate_indices: List[int], lsr: List[Item],
+                             sim_matrix, top_k: int = 5) -> List[int]:
+    """Формирует ранжированный список кандидатов с учетом типа позиции, размерностей и объемов."""
+    dim_v, q_v = to_base(v.qty, v.unit)
+    is_v_work = is_work_item(v.name)
+
+    scored = []
+    for j in candidate_indices:
+        l = lsr[j]
+        is_l_work = is_work_item_lsr(l)
+        s = float(sim_matrix[i, j])
+
+        # Доменный приоритет соответствия типов позиций:
+        if is_v_work:
+            if is_l_work:
+                s += 0.50  # приоритет работам по расценкам ГЭСН/ФЕР
+            else:
+                s -= 0.50
+        else:
+            if not is_l_work:
+                s += 0.20  # приоритет материалам для позиций материалов
+            else:
+                s -= 0.30
+
+        # Бонус за совместимость единиц измерения и объемов:
+        dim_l, q_l = to_base(l.qty, l.unit)
+        if dim_v is not None and dim_l is not None:
+            if dim_v == dim_l:
+                s += 0.20
+                if q_v is not None and q_l is not None:
+                    ratio = q_v / q_l if q_l > 0 else 0
+                    if 0.9 <= ratio <= 1.1:
+                        s += 0.30
+                    elif 0.5 <= ratio <= 2.0:
+                        s += 0.10
+            else:
+                s -= 0.20
+
+        scored.append((j, s))
+
+    scored.sort(key=lambda x: -x[1])
+    return [j for j, _ in scored[:top_k]]
 
 DEFAULT_FOLDER = ""
 DEFAULT_MODEL = "aliceai-llm-flash/latest"
@@ -326,8 +387,11 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
         # Smart Pruning (Этап 1):
         # Если максимальное сходство со всей сметой < prune_threshold (0.20),
         # в смете гарантированно нет подходящей расценки. Не отправляем в модель заведомый отказ.
+        # Для позиций работ не отсекаем, если в смете есть расценки-работы (ГЭСН/ФЕР с обобщенным названием).
+        is_work_v = is_work_item(v.name)
+        has_work_in_lsr = any(is_work_item_lsr(l) for l in lsr)
         max_sim_for_row = float(sim[i].max()) if len(lsr) > 0 else 0.0
-        if max_sim_for_row < prune_threshold and mode != "model_only":
+        if max_sim_for_row < prune_threshold and mode != "model_only" and not (is_work_v and has_work_in_lsr):
             stats["pruned"] += 1
             if cur_j is None:
                 r["explanation"] = f"В смете ЛСР нет подходящей расценки (макс. сходство {max_sim_for_row:.2f} < {prune_threshold:.2f})"
@@ -340,8 +404,22 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
 
         stats["ambiguities_checked"] += 1
 
-        # Формирование пула кандидатов
-        pool = sorted(free, key=lambda j: -sim[i, j])[:top_k - (1 if cur_j is not None else 0)]
+        # Формирование пула кандидатов с учетом предметной области (Smart Candidate Selection)
+        slots_needed = top_k - (1 if cur_j is not None else 0)
+        if is_work_v:
+            # Для работ приоритетно ищем расценки ГЭСН/ФЕР среди свободных и альтернативных
+            work_cands = [j for j in free if is_work_item_lsr(lsr[j]) and j != cur_j]
+            if len(work_cands) < slots_needed:
+                all_works = [j for j in range(len(lsr)) if is_work_item_lsr(lsr[j]) and j != cur_j]
+                work_cands = list(dict.fromkeys(work_cands + all_works))
+            pool = rank_candidates_for_item(v, i, work_cands, lsr, sim, top_k=slots_needed)
+            if len(pool) < slots_needed:
+                remaining = [j for j in free if j != cur_j and j not in pool]
+                pool.extend(rank_candidates_for_item(v, i, remaining, lsr, sim, top_k=slots_needed - len(pool)))
+        else:
+            candidates_to_rank = [j for j in free if j != cur_j]
+            pool = rank_candidates_for_item(v, i, candidates_to_rank, lsr, sim, top_k=slots_needed)
+
         cand_idx = ([cur_j] if cur_j is not None else []) + pool
         if not cand_idx:
             continue

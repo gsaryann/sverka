@@ -1,0 +1,362 @@
+[
+ {
+  "task": 1,
+  "rep": 0,
+  "verdict": "safe_reject",
+  "answerable": false,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 2,
+  "rep": 0,
+  "verdict": "safe_reject",
+  "answerable": false,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 3,
+  "rep": 0,
+  "verdict": "safe_reject",
+  "answerable": false,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 4,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 5,
+  "rep": 0,
+  "verdict": "safe_reject",
+  "answerable": false,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 6,
+  "rep": 0,
+  "verdict": "safe_reject",
+  "answerable": false,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 7,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 8,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 9,
+  "rep": 0,
+  "verdict": "safe_reject",
+  "answerable": false,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 10,
+  "rep": 0,
+  "verdict": "safe_reject",
+  "answerable": false,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 11,
+  "rep": 0,
+  "verdict": "safe_reject",
+  "answerable": false,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 12,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   4
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 13,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 14,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 15,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 16,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 17,
+  "rep": 0,
+  "verdict": "safe_reject",
+  "answerable": false,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 18,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 19,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 20,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 21,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 22,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 23,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 24,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 25,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 26,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ },
+ {
+  "task": 27,
+  "rep": 0,
+  "verdict": "missed",
+  "answerable": true,
+  "action": "REJECT",
+  "cand": null,
+  "conf": 0.9,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.0,
+  "reason": "mock"
+ }
+]
