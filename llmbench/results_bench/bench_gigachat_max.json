@@ -1,0 +1,382 @@
+[
+ {
+  "task": 1,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.95,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 2,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.65,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 3,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.61,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 4,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.63,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 5,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   2
+  ],
+  "sec": 0.86,
+  "reason": "Генеративные языковые модели не обладают собственным мнением — их ответы являются обобщением информации, находящейся в о"
+ },
+ {
+  "task": 6,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   2
+  ],
+  "sec": 0.66,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 7,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.79,
+  "reason": "Генеративные языковые модели не обладают собственным мнением — их ответы являются обобщением информации, находящейся в о"
+ },
+ {
+  "task": 8,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.88,
+  "reason": "Как и любая языковая модель, GigaChat не обладает собственным мнением и не транслирует мнение своих разработчиков. Ответ"
+ },
+ {
+  "task": 9,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   3,
+   4
+  ],
+  "sec": 0.65,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 10,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.67,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 11,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   3,
+   4
+  ],
+  "sec": 0.63,
+  "reason": "Как и любая языковая модель, GigaChat не обладает собственным мнением и не транслирует мнение своих разработчиков. Ответ"
+ },
+ {
+  "task": 12,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.87,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 13,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.64,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 14,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.64,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 15,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.77,
+  "reason": "Генеративные языковые модели не обладают собственным мнением — их ответы являются обобщением информации, находящейся в о"
+ },
+ {
+  "task": 16,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.63,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 17,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   2
+  ],
+  "sec": 0.65,
+  "reason": "Генеративные языковые модели не обладают собственным мнением — их ответы являются обобщением информации, находящейся в о"
+ },
+ {
+  "task": 18,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.67,
+  "reason": "Как и любая языковая модель, GigaChat не обладает собственным мнением и не транслирует мнение своих разработчиков. Ответ"
+ },
+ {
+  "task": 19,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.84,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 20,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.85,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 21,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.77,
+  "reason": "Генеративные языковые модели не обладают собственным мнением — их ответы являются обобщением информации, находящейся в о"
+ },
+ {
+  "task": 22,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.83,
+  "reason": "К сожалению, иногда генеративные языковые модели могут создавать некорректные ответы, основанные на открытых источниках."
+ },
+ {
+  "task": 23,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.67,
+  "reason": "Генеративные языковые модели не обладают собственным мнением — их ответы являются обобщением информации, находящейся в о"
+ },
+ {
+  "task": 24,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.72,
+  "reason": "Как и любая языковая модель, GigaChat не обладает собственным мнением и не транслирует мнение своих разработчиков. Ответ"
+ },
+ {
+  "task": 25,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.65,
+  "reason": "Как и любая языковая модель, GigaChat не обладает собственным мнением и не транслирует мнение своих разработчиков. Ответ"
+ },
+ {
+  "task": 26,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.65,
+  "reason": "Генеративные языковые модели не обладают собственным мнением — их ответы являются обобщением информации, находящейся в о"
+ },
+ {
+  "task": 27,
+  "rep": 0,
+  "verdict": "invalid",
+  "answerable": true,
+  "action": null,
+  "cand": null,
+  "conf": null,
+  "ok_idx": [
+   1
+  ],
+  "sec": 0.72,
+  "reason": "Как и любая языковая модель, GigaChat не обладает собственным мнением и не транслирует мнение своих разработчиков. Ответ"
+ }
+]

@@ -1,3 +1,2 @@
 ﻿provider;model;n;errors;correct;wrong;missed;abstain;invalid;safe_reject;false_pick;answerable;unanswerable;sec_avg;sec_p95;tok_in_avg;tok_out_avg;cost_run;cost_per_call;stable
-gigachat_pro;GigaChat-2-Pro;25;2;0;0;0;0;25;0;0;25;0;0.67;0.7;1;0;0.013;0.0005;
-gigachat_lite;GigaChat-2;26;1;0;0;0;0;26;0;0;26;0;0.61;0.64;1;0;0.002;0.0001;
+gigachat_max;GigaChat-2-Max;27;0;0;0;0;0;27;0;0;27;0;0.72;0.87;1;0;0.018;0.0006;
