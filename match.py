@@ -234,7 +234,7 @@ def evaluate_pair(v: Item, l: Item, text_sim: float, tol: float = 1e-3) -> Match
 
 
 def match(vor: List[Item], lsr: List[Item], thr: float = 0.50,
-          w_q: float = 0.0, w_o: float = 0.0,
+          w_q: float = 0.1, w_o: float = 0.0,
           min_text_threshold: float = 0.20,
           use_global_optimization: bool = True) -> List[Dict[str, Any]]:
     """Основная функция сопоставления.
@@ -253,8 +253,8 @@ def match(vor: List[Item], lsr: List[Item], thr: float = 0.50,
     text_sim_matrix = similarity(vor, lsr)
     nv, nl = len(vor), len(lsr)
 
-    # Формируем матрицу уверенности и матрицу кандидатов
-    cost_matrix = np.full((nv, nl), 1e6)
+    # Формируем матрицу уверенности и матрицу кандидатов (нейтральная стоимость 0.0 исключает искажения назначений)
+    cost_matrix = np.full((nv, nl), 0.0)
     candidate_matrix = {}
 
     for i, v in enumerate(vor):
@@ -318,6 +318,29 @@ def match(vor: List[Item], lsr: List[Item], thr: float = 0.50,
             matched_v[i] = (j, cand)
             matched_l[j] = (i, cand)
 
+    # Второй проход (fallback): сопоставление оставшихся непарных строк по подтвержденной ссылке в ВОР и точному объёму
+    for i in range(nv):
+        if i not in matched_v:
+            v = vor[i]
+            v_ref = (getattr(v, 'ref', None) or '').strip()
+            if not v_ref:
+                continue
+            for j in range(nl):
+                if j not in matched_l:
+                    l = lsr[j]
+                    if v_ref == str(l.num).strip():
+                        sim_t = float(text_sim_matrix[i, j])
+                        cand = evaluate_pair(v, l, sim_t)
+                        if cand.unit_compatible and cand.qty_matched:
+                            cand.classification = "Кандидат — требуется проверка"
+                            cand.explanation = (
+                                f"Сопоставлено вторым проходом по ссылке № в ЛСР (#{l.num}) "
+                                f"и совпадению объема ({v.qty} {v.unit}): требуется проверка наименования"
+                            )
+                            matched_v[i] = (j, cand)
+                            matched_l[j] = (i, cand)
+                            break
+
     results = []
 
     # Обработка позиций ВОР
@@ -332,8 +355,8 @@ def match(vor: List[Item], lsr: List[Item], thr: float = 0.50,
             j, cand = matched_v[i]
             l = lsr[j]
             status = cand.classification
-            # Если текстовое сходство пограничное, выносим на проверку специалиста
-            if cand.sim_text < 0.35 and status == "Совпало":
+            # Если текстовое сходство пограничное или уверенность невысокая, выносим на проверку специалиста
+            if (cand.sim_text < 0.45 or cand.confidence < 0.50) and status in ("Совпало", "Совпало (с пересчетом единиц)"):
                 status = "Кандидат — требуется проверка"
 
             # Анализ альтернатив и расчет маржи
@@ -347,11 +370,20 @@ def match(vor: List[Item], lsr: List[Item], thr: float = 0.50,
 
             # 1. Конкуренция близких кандидатов (минимальный разрыв скора)
             if alt_cand is not None and margin < 0.12 and cand.confidence >= 0.35:
-                is_ambiguous = True
-                ambiguity_type = "competition"
-                conflict_reasons.append(
-                    f"Конкуренция со строкой ЛСР №{lsr[alt_j].num} (разница уверенности {margin:.2f})"
-                )
+                # Фильтр дубликатов: если альтернатива - это текстуальный дубль работы из другой комнаты,
+                # а текущий кандидат однозначно выбран по объему, или разница скора 0.00 при идентичном тексте,
+                # отправка в модель не требуется
+                is_exact_dup = abs(cand.sim_text - alt_cand.sim_text) < 0.001
+                if is_exact_dup and cand.qty_matched and not alt_cand.qty_matched:
+                    pass
+                elif is_exact_dup and margin == 0.0:
+                    pass
+                else:
+                    is_ambiguous = True
+                    ambiguity_type = "competition"
+                    conflict_reasons.append(
+                        f"Конкуренция со строкой ЛСР №{lsr[alt_j].num} (разница уверенности {margin:.2f})"
+                    )
 
             # 2. Конфликт параметров при высоком сходстве текста
             if cand.sim_text >= 0.45 and not cand.char_match:
