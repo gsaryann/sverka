@@ -3,6 +3,7 @@ import unittest
 from parsers import Item, normalize_text, extract_technical_characteristics
 from units import parse_unit, to_base
 import match
+from match import apply_formulation_warnings
 from perturb import make_set
 from evaluate import evaluate
 
@@ -229,6 +230,85 @@ class TestEvaluationAndPerturb(unittest.TestCase):
         self.assertIn('prec', metrics)
         self.assertIn('rec', metrics)
         self.assertGreaterEqual(metrics['f1'], 0.0)
+
+
+class TestFormulationWarnings(unittest.TestCase):
+    def setUp(self):
+        self.v = Item('VOR', 1, '1', '', 'Монтаж насоса X', 'шт', 2.0, section='ВОР')
+        self.l = Item('LSR', 1, '1', 'ГЭСН-1', 'Установка насоса X', 'шт', 2.0, section='Секция 1')
+
+    def row(self, cls='Совпало', text_sim=0.44, ai_decision=''):
+        return {
+            'vor': self.v.num, 'lsr': self.l.num, 'cls': cls,
+            'text_sim': text_sim, 'vor_item': self.v, 'lsr_item': self.l,
+            'ai_decision': ai_decision,
+        }
+
+    def test_weak_text_warning_uses_strict_point_45_boundary(self):
+        weak = self.row(text_sim=0.44)
+        weak_confirm = self.row(text_sim=0.44, ai_decision='Подтверждено ИИ')
+        at_boundary = self.row(text_sim=0.45)
+        apply_formulation_warnings([weak, weak_confirm, at_boundary], [self.v], [self.l])
+
+        self.assertTrue(weak['formulation_warning'])
+        self.assertEqual(weak['cls'], 'Совпало')
+        self.assertEqual(weak['upper_status'], 'Требует проверки')
+        self.assertTrue(weak_confirm['formulation_warning'])
+        self.assertFalse(at_boundary['formulation_warning'])
+
+        exact_v = Item('VOR', 2, '2', '', 'Прокладка трубы стальной', 'м', 10.0, section='ВОР')
+        exact_l = Item('LSR', 2, '2', 'ГЭСН-2', exact_v.name, 'м', 10.0, section='Секция 1')
+        exact = {
+            'vor': exact_v.num, 'lsr': exact_l.num, 'cls': 'Совпало', 'text_sim': 1.0,
+            'vor_item': exact_v, 'lsr_item': exact_l,
+        }
+        apply_formulation_warnings([exact], [exact_v], [exact_l])
+        self.assertFalse(exact['formulation_warning'])
+
+    def test_model_pick_and_reassignment_warn_but_confirm_does_not_add_warning(self):
+        self.l.qty = 3.0  # исключает условие (б); конкурирующих разделов нет
+        picked = self.row(cls='Расхождение объёма', text_sim=0.9, ai_decision='Подобрано ИИ')
+        reassigned = self.row(cls='Расхождение объёма', text_sim=0.9, ai_decision='Переназначено ИИ')
+        confirmed = self.row(cls='Расхождение объёма', text_sim=0.9, ai_decision='Подтверждено ИИ')
+        apply_formulation_warnings([picked, reassigned, confirmed], [self.v], [self.l])
+
+        self.assertTrue(picked['formulation_warning'])
+        self.assertTrue(reassigned['formulation_warning'])
+        self.assertFalse(confirmed['formulation_warning'])
+
+    def test_competitor_from_another_section_warns(self):
+        self.v.name = 'Монтаж насоса X 20 кВт'
+        self.v.name_norm = normalize_text(self.v.name)
+        self.l.name = 'Монтаж насоса X 25 кВт'
+        self.l.name_norm = normalize_text(self.l.name)
+        self.l.qty = 3.0  # исключает условие (б)
+        other = Item('LSR', 2, '2', 'ГЭСН-2', 'Монтаж насоса X 21 кВт', 'шт', 4.0, section='Секция 2')
+        row = self.row(cls='Расхождение объёма', text_sim=0.8114)
+        apply_formulation_warnings([row], [self.v], [self.l, other])
+
+        self.assertTrue(row['formulation_warning'])
+
+    def test_identical_text_in_another_section_is_not_a_formulation_warning(self):
+        self.v.name = self.l.name
+        self.v.name_norm = normalize_text(self.v.name)
+        self.l.name_norm = normalize_text(self.l.name)
+        self.l.qty = 3.0
+        other = Item('LSR', 2, '2', 'ГЭСН-2', self.l.name, 'шт', 4.0, section='Секция 2')
+        row = self.row(cls='Расхождение объёма', text_sim=1.0)
+        apply_formulation_warnings([row], [self.v], [self.l, other])
+
+        self.assertFalse(row['formulation_warning'])
+
+    def test_rejected_or_absent_pair_has_no_formulation_warning(self):
+        row = {
+            'vor': self.v.num, 'lsr': None, 'cls': 'Нет в рассматриваемой смете',
+            'vor_item': self.v, 'lsr_item': None, 'ai_decision': 'Отклонено ИИ',
+        }
+        apply_formulation_warnings([row], [self.v], [self.l])
+
+        self.assertFalse(row['formulation_warning'])
+        self.assertEqual(row['formulation_warning_reason'], '')
+        self.assertEqual(row['upper_status'], 'Отсутствует в документе')
 
 
 if __name__ == '__main__':

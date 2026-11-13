@@ -37,7 +37,7 @@ except ImportError:
     raise SystemExit('Не установлена библиотека openai. Выполните: pip install openai python-dotenv')
 
 from parsers import Item
-from match import similarity, evaluate_pair
+from match import similarity, evaluate_pair, apply_formulation_warnings
 from units import to_base
 
 logger = logging.getLogger(__name__)
@@ -698,6 +698,7 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
             competing_candidates=[]
         ))
 
+    apply_formulation_warnings(out, vor, lsr)
     stats["seconds"] = round(time.time() - t0, 1)
     stats["input_tokens"] = getattr(client, "total_input_tokens", 0)
     stats["output_tokens"] = getattr(client, "total_output_tokens", 0)

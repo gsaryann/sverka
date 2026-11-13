@@ -139,6 +139,8 @@ tr:hover { background: #f0f7ff; }
 .st-unit { color: #7e22ce; font-weight: 600; }
 .st-diff { color: #b91c1c; font-weight: 600; }
 .st-none { color: #64748b; }
+.st-review { color: #b45309; font-weight: 700; }
+.formulation-warning { margin-top: 5px; padding: 6px 8px; border-left: 3px solid #d97706; background: #fffbeb; color: #92400e; font-size: 12px; }
 .st-confirmed { color: #166534; background: #dcfce7; padding: 1px 4px; border-radius: 2px; font-weight: 600; }
 
 .tag-ai {

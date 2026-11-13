@@ -58,7 +58,8 @@ FIELDS = [
     'ЛСР №', 'ЛСР строка', 'ЛСР раздел', 'ЛСР шифр', 'ЛСР: наименование', 'ЛСР: единица', 'ЛСР: количество',
     'Текстовое сходство', 'Уверенность', 'Результат алгоритма', 'Причина решения и расхождения',
     'Коллизия (неоднозначность)', 'Решение ИИ-арбитра',
-    'Статус решения сметчика'
+    'Статус решения сметчика', 'Исходный класс', 'Верхний статус', 'Предупреждение о формулировке',
+    'Причина предупреждения'
 ]
 
 
@@ -92,7 +93,10 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
         l = r.get('lsr_item') or (lsr_by_num.get(str(r.get('lsr'))) if r.get('lsr') is not None else None)
 
         status = str(r.get('cls') or '')
-        stats[status] = stats.get(status, 0) + 1
+        high_status = r.get('upper_status') or match.upper_status(
+            status, r.get('formulation_warning', False)
+        )
+        stats[high_status] = stats.get(high_status, 0) + 1
 
         rows.append({
             'ВОР №': str(v.num) if v else '',
@@ -111,6 +115,10 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
             'Текстовое сходство': round(float(r.get('text_sim', 0.0)), 4),
             'Уверенность': round(float(r.get('score', 0.0)), 4),
             'Результат алгоритма': status,
+            'Исходный класс': status,
+            'Верхний статус': high_status,
+            'Предупреждение о формулировке': bool(r.get('formulation_warning', False)),
+            'Причина предупреждения': str(r.get('formulation_warning_reason') or ''),
             'Причина решения и расхождения': str(r.get('explanation') or ''),
             'Коллизия (неоднозначность)': str(r.get('conflict_reason') or ''),
             'Решение ИИ-арбитра': str(r.get('ai_decision') or ('Не привлекался' if not llm_active else 'Авто')),
@@ -410,6 +418,9 @@ def api_action_row():
         # По BPMN Слайд 12: Сметчик отклонил -> Статус «Нет в рассматриваемой смете»
         row['Статус решения сметчика'] = 'Отклонено'
         row['Результат алгоритма'] = 'Нет в рассматриваемой смете'
+        row['Верхний статус'] = match.upper_status('Нет в рассматриваемой смете')
+        row['Предупреждение о формулировке'] = False
+        row['Причина предупреждения'] = ''
         row['ЛСР №'] = ''
         row['ЛСР шифр'] = ''
         row['ЛСР: наименование'] = ''

@@ -16,6 +16,76 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from parsers import Item, normalize_text
 from units import to_base, parse_unit
 
+FORMULATION_WARNING = (
+    "Формулировка отличается от сметной. Просим проверить соответствие записи в нормативной базе: "
+    "при другой формулировке возможна другая расценка."
+)
+
+
+def upper_status(cls: str, formulation_warning: bool = False) -> str:
+    """Преобразует подробную классификацию пары в один из четырёх статусов интерфейса."""
+    status = str(cls or "")
+    if status in ("Нет в ВОР", "Нет в рассматриваемой смете"):
+        return "Отсутствует в документе"
+    if status == "Дубль" or "требуется проверка" in status.lower() or formulation_warning:
+        return "Требует проверки"
+    if status.startswith("Расхождение"):
+        return "Расхождение"
+    if status.startswith("Совпало"):
+        return "Совпало"
+    return "Требует проверки"
+
+
+def apply_formulation_warnings(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item]):
+    """Добавляет к итоговым парам объяснимый признак риска формулировки."""
+    vi = {id(item): i for i, item in enumerate(vor)}
+    li = {id(item): j for j, item in enumerate(lsr)}
+    similarities = similarity(vor, lsr)
+
+    for result in results:
+        v = result.get("vor_item")
+        l = result.get("lsr_item")
+        warning = False
+
+        if v is not None and l is not None and id(v) in vi and id(l) in li:
+            i, chosen_j = vi[id(v)], li[id(l)]
+            text_sim = float(result.get("text_sim", similarities[i, chosen_j]))
+            candidate = evaluate_pair(v, l, text_sim)
+
+            # (а) Пару нашла модель для ранее ненайденной позиции или переназначила.
+            ai_decision = str(result.get("ai_decision", ""))
+            model_selected = ai_decision in ("Подобрано ИИ", "Переназначено ИИ")
+
+            # (б) Совпавший объём при слабом сыром текстовом сходстве.
+            weak_text_with_same_quantity = (
+                result.get("cls") != "Дубль" and candidate.qty_matched and text_sim < 0.45
+            )
+
+            # (в) Сопоставимый конкурент из другого раздела.
+            chosen_section = (getattr(l, "section", "") or "").strip()
+            cross_section_competitor = False
+            if chosen_section:
+                for j, alternative in enumerate(lsr):
+                    if j == chosen_j:
+                        continue
+                    # Повтор той же формулировки в соседнем помещении — дубль нормы,
+                    # но не свидетельство отличия наименования.
+                    if alternative.name_norm == l.name_norm:
+                        continue
+                    alternative_section = (getattr(alternative, "section", "") or "").strip()
+                    if not alternative_section or alternative_section == chosen_section:
+                        continue
+                    alternative_similarity = float(similarities[i, j])
+                    if alternative_similarity >= max(0.20, text_sim - 0.05):
+                        cross_section_competitor = True
+                        break
+
+            warning = model_selected or weak_text_with_same_quantity or cross_section_competitor
+
+        result["formulation_warning"] = warning
+        result["formulation_warning_reason"] = FORMULATION_WARNING if warning else ""
+        result["upper_status"] = upper_status(result.get("cls", ""), warning)
+
 
 @dataclass
 class MatchCandidate:
@@ -253,9 +323,15 @@ def match(vor: List[Item], lsr: List[Item], thr: float = 0.50,
     - Совместимость с форматом словарей исходного проекта.
     """
     if not vor:
-        return [dict(vor=None, lsr=l.num, cls='Нет в ВОР', score=0.0, explanation='Нет в ВОР') for l in lsr]
+        results = [dict(vor=None, lsr=l.num, cls='Нет в ВОР', score=0.0, explanation='Нет в ВОР',
+                        vor_item=None, lsr_item=l) for l in lsr]
+        apply_formulation_warnings(results, vor, lsr)
+        return results
     if not lsr:
-        return [dict(vor=v.num, lsr=None, cls='Нет в рассматриваемой смете', score=0.0, explanation='Смета пуста') for v in vor]
+        results = [dict(vor=v.num, lsr=None, cls='Нет в рассматриваемой смете', score=0.0,
+                        explanation='Смета пуста', vor_item=v, lsr_item=None) for v in vor]
+        apply_formulation_warnings(results, vor, lsr)
+        return results
 
     text_sim_matrix = similarity(vor, lsr)
     nv, nl = len(vor), len(lsr)
@@ -540,4 +616,5 @@ def match(vor: List[Item], lsr: List[Item], thr: float = 0.50,
                 "lsr_row": l.row,
             })
 
+    apply_formulation_warnings(results, vor, lsr)
     return results

@@ -35,8 +35,9 @@ function loadPreset(key) {
 
 // ================== ОПРЕДЕЛЕНИЕ СПОРНОСТИ (ПО BPMN) ==================
 function isRowAmbiguous(r) {
+  const hasFormulationWarning = Boolean(r['Предупреждение о формулировке']);
   if (r.is_ambiguous !== undefined && r.is_ambiguous !== null) {
-    return Boolean(r.is_ambiguous);
+    return Boolean(r.is_ambiguous) || hasFormulationWarning;
   }
   const isAi = (r['Причина решения и расхождения'] || '').includes('Алиса');
   const sim = parseFloat(r['Текстовое сходство'] || 0);
@@ -186,9 +187,9 @@ async function runCompare() {
 
 function renderSummary(st, mode) {
   document.getElementById('ws-total').textContent = tableData.length;
-  document.getElementById('ws-match').textContent = tableData.filter(r => (r['Результат алгоритма'] || '').startsWith('Совпало')).length;
-  document.getElementById('ws-diff').textContent = tableData.filter(r => (r['Результат алгоритма'] || '').includes('Расхождение')).length;
-  document.getElementById('ws-none').textContent = tableData.filter(r => (r['Результат алгоритма'] || '').startsWith('Нет в')).length;
+  document.getElementById('ws-match').textContent = tableData.filter(r => (r['Верхний статус'] || '').startsWith('Совпало')).length;
+  document.getElementById('ws-diff').textContent = tableData.filter(r => (r['Верхний статус'] || '') === 'Расхождение').length;
+  document.getElementById('ws-none').textContent = tableData.filter(r => (r['Верхний статус'] || '') === 'Отсутствует в документе').length;
 
   const ambigList = tableData.filter(r => isRowAmbiguous(r));
   const decidedCount = ambigList.filter(r => r['Статус решения сметчика'] === 'Подтверждено' || r['Статус решения сметчика'] === 'Отклонено').length;
@@ -233,6 +234,7 @@ function applyFiltersAndSort() {
   // 1. Фильтрация
   const filtered = tableData.filter(r => {
     const st = r['Результат алгоритма'] || '';
+    const highStatus = r['Верхний статус'] || st;
     const isAmbig = isRowAmbiguous(r);
     const isDecided = (r['Статус решения сметчика'] === 'Подтверждено' || r['Статус решения сметчика'] === 'Отклонено');
     const isAi = (r['Причина решения и расхождения'] || '').includes('Алиса');
@@ -241,9 +243,9 @@ function applyFiltersAndSort() {
     // Фильтр по статусу
     if (statusFilter === 'ambig' && !isAmbig) return false;
     if (statusFilter === 'collision' && !r['Коллизия (неоднозначность)']) return false;
-    if (statusFilter === 'diff' && !st.includes('Расхождение')) return false;
-    if (statusFilter === 'match' && !st.startsWith('Совпало')) return false;
-    if (statusFilter === 'missing' && !st.startsWith('Нет в')) return false;
+    if (statusFilter === 'diff' && highStatus !== 'Расхождение') return false;
+    if (statusFilter === 'match' && highStatus !== 'Совпало') return false;
+    if (statusFilter === 'missing' && highStatus !== 'Отсутствует в документе') return false;
     if (statusFilter === 'decided' && !isDecided) return false;
 
     // Фильтр по сходству
@@ -328,16 +330,20 @@ function renderTable(rows) {
     const tr = document.createElement('tr');
     const isAi = (r['Причина решения и расхождения'] || '').includes('Алиса');
     const aiTag = isAi ? '<span class="tag-ai">ИИ</span>' : '';
-    const st = r['Результат алгоритма'];
+    const rawStatus = r['Результат алгоритма'] || '';
+    const st = r['Верхний статус'] || rawStatus;
+    const hasFormulationWarning = Boolean(r['Предупреждение о формулировке']);
     const isAmbig = isRowAmbiguous(r);
     const decision = r['Статус решения сметчика'] || 'Авто';
 
     let statusClass = 'st-none';
     if (decision === 'Подтверждено') statusClass = 'st-confirmed';
     else if (decision === 'Отклонено') statusClass = 'st-diff';
-    else if (st.startsWith('Совпало')) statusClass = 'st-ok';
-    else if (st.includes('объёма')) statusClass = 'st-qty';
-    else if (st.includes('единиц')) statusClass = 'st-unit';
+    else if (st === 'Совпало') statusClass = 'st-ok';
+    else if (st === 'Расхождение' && rawStatus.includes('объёма')) statusClass = 'st-qty';
+    else if (st === 'Расхождение' && rawStatus.includes('единиц')) statusClass = 'st-unit';
+    else if (st === 'Расхождение') statusClass = 'st-diff';
+    else if (st === 'Требует проверки') statusClass = 'st-review';
 
     const originalIndex = tableData.indexOf(r);
 
@@ -377,6 +383,9 @@ function renderTable(rows) {
     const aiDecisionTag = (r['Решение ИИ-арбитра'] && r['Решение ИИ-арбитра'] !== 'Не привлекался' && r['Решение ИИ-арбитра'] !== 'Авто')
       ? `<div class="tag-ai-decision">🤖 ${r['Решение ИИ-арбитра']}</div>`
       : '';
+    const formulationWarning = hasFormulationWarning
+      ? `<div class="formulation-warning">⚠️ ${r['Причина предупреждения']}</div>`
+      : '';
 
     tr.innerHTML = `
       <td>${r['ВОР №'] || '-'}</td>
@@ -398,7 +407,9 @@ function renderTable(rows) {
       </td>
       <td>${Math.round((r['Текстовое сходство'] || 0) * 100)}%</td>
       <td style="color:#333;">
+        <div><b>Исходный класс:</b> ${rawStatus}</div>
         <div>${r['Причина решения и расхождения']}</div>
+        ${formulationWarning}
         ${collisionBadge}
       </td>
       <td style="text-align: center; vertical-align: middle;">
