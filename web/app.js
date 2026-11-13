@@ -384,7 +384,7 @@ function renderTable(rows) {
       ? `<div class="tag-ai-decision">🤖 ${r['Решение ИИ-арбитра']}</div>`
       : '';
     const formulationWarning = hasFormulationWarning
-      ? `<div class="formulation-warning">⚠️ ${r['Причина предупреждения']}</div>`
+      ? `<div class="formulation-warning">⚠️ ${r['Причина предупреждения']}<br><small>Основание: ${r['Условие предупреждения']}</small></div>`
       : '';
 
     tr.innerHTML = `

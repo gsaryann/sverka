@@ -253,6 +253,7 @@ class TestFormulationWarnings(unittest.TestCase):
         self.assertTrue(weak['formulation_warning'])
         self.assertEqual(weak['cls'], 'Совпало')
         self.assertEqual(weak['upper_status'], 'Требует проверки')
+        self.assertEqual(weak['formulation_warning_conditions'], ['б: объём совпал при text_sim < 0,45'])
         self.assertTrue(weak_confirm['formulation_warning'])
         self.assertFalse(at_boundary['formulation_warning'])
 
@@ -275,6 +276,8 @@ class TestFormulationWarnings(unittest.TestCase):
         self.assertTrue(picked['formulation_warning'])
         self.assertTrue(reassigned['formulation_warning'])
         self.assertFalse(confirmed['formulation_warning'])
+        self.assertEqual(picked['formulation_warning_conditions'], ['а: ИИ подобрал пару, которой не было у алгоритма'])
+        self.assertEqual(reassigned['formulation_warning_conditions'], ['а: ИИ переназначил пару'])
 
     def test_competitor_from_another_section_warns(self):
         self.v.name = 'Монтаж насоса X 20 кВт'
@@ -287,17 +290,26 @@ class TestFormulationWarnings(unittest.TestCase):
         apply_formulation_warnings([row], [self.v], [self.l, other])
 
         self.assertTrue(row['formulation_warning'])
+        self.assertEqual(row['formulation_warning_conditions'], [
+            'в: сопоставимый конкурент с другой формулировкой в другом разделе'
+        ])
 
-    def test_identical_text_in_another_section_is_not_a_formulation_warning(self):
-        self.v.name = self.l.name
+    def test_exact_chosen_text_suppresses_section_competitor(self):
+        exact_name = 'Кран шаровой стальной DN 20 мм PN16'
+        self.v.name = exact_name
         self.v.name_norm = normalize_text(self.v.name)
+        self.l.name = exact_name
         self.l.name_norm = normalize_text(self.l.name)
         self.l.qty = 3.0
-        other = Item('LSR', 2, '2', 'ГЭСН-2', self.l.name, 'шт', 4.0, section='Секция 2')
+        other = Item(
+            'LSR', 2, '2', 'ГЭСН-2', 'Кран шаровой стальной DN 15 мм PN16',
+            'шт', 4.0, section='Секция 2'
+        )
         row = self.row(cls='Расхождение объёма', text_sim=1.0)
         apply_formulation_warnings([row], [self.v], [self.l, other])
 
         self.assertFalse(row['formulation_warning'])
+        self.assertEqual(row['formulation_warning_conditions'], [])
 
     def test_rejected_or_absent_pair_has_no_formulation_warning(self):
         row = {
@@ -309,6 +321,13 @@ class TestFormulationWarnings(unittest.TestCase):
         self.assertFalse(row['formulation_warning'])
         self.assertEqual(row['formulation_warning_reason'], '')
         self.assertEqual(row['upper_status'], 'Отсутствует в документе')
+
+    def test_duplicate_uses_review_upper_status_and_keeps_detail_class(self):
+        duplicate = {'cls': 'Дубль'}
+        apply_formulation_warnings([duplicate], [], [])
+
+        self.assertEqual(duplicate['upper_status'], 'Требует проверки')
+        self.assertEqual(duplicate['cls'], 'Дубль')
 
 
 if __name__ == '__main__':

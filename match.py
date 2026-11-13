@@ -46,6 +46,7 @@ def apply_formulation_warnings(results: List[Dict[str, Any]], vor: List[Item], l
         v = result.get("vor_item")
         l = result.get("lsr_item")
         warning = False
+        warning_conditions = []
 
         if v is not None and l is not None and id(v) in vi and id(l) in li:
             i, chosen_j = vi[id(v)], li[id(l)]
@@ -55,16 +56,23 @@ def apply_formulation_warnings(results: List[Dict[str, Any]], vor: List[Item], l
             # (а) Пару нашла модель для ранее ненайденной позиции или переназначила.
             ai_decision = str(result.get("ai_decision", ""))
             model_selected = ai_decision in ("Подобрано ИИ", "Переназначено ИИ")
+            if ai_decision == "Подобрано ИИ":
+                warning_conditions.append("а: ИИ подобрал пару, которой не было у алгоритма")
+            elif ai_decision == "Переназначено ИИ":
+                warning_conditions.append("а: ИИ переназначил пару")
 
             # (б) Совпавший объём при слабом сыром текстовом сходстве.
             weak_text_with_same_quantity = (
                 result.get("cls") != "Дубль" and candidate.qty_matched and text_sim < 0.45
             )
+            if weak_text_with_same_quantity:
+                warning_conditions.append("б: объём совпал при text_sim < 0,45")
 
             # (в) Сопоставимый конкурент из другого раздела.
             chosen_section = (getattr(l, "section", "") or "").strip()
             cross_section_competitor = False
-            if chosen_section:
+            exact_text_match = text_sim >= 1.0 - 1e-9
+            if chosen_section and not exact_text_match:
                 for j, alternative in enumerate(lsr):
                     if j == chosen_j:
                         continue
@@ -79,10 +87,13 @@ def apply_formulation_warnings(results: List[Dict[str, Any]], vor: List[Item], l
                     if alternative_similarity >= max(0.20, text_sim - 0.05):
                         cross_section_competitor = True
                         break
+            if cross_section_competitor:
+                warning_conditions.append("в: сопоставимый конкурент с другой формулировкой в другом разделе")
 
-            warning = model_selected or weak_text_with_same_quantity or cross_section_competitor
+            warning = bool(warning_conditions)
 
         result["formulation_warning"] = warning
+        result["formulation_warning_conditions"] = warning_conditions
         result["formulation_warning_reason"] = FORMULATION_WARNING if warning else ""
         result["upper_status"] = upper_status(result.get("cls", ""), warning)
 
