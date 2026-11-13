@@ -338,7 +338,6 @@ function renderTable(rows) {
     else if (st.startsWith('Совпало')) statusClass = 'st-ok';
     else if (st.includes('объёма')) statusClass = 'st-qty';
     else if (st.includes('единиц')) statusClass = 'st-unit';
-    else if (st.includes('по сути')) statusClass = 'st-diff';
 
     const originalIndex = tableData.indexOf(r);
 
@@ -454,6 +453,9 @@ async function runBenchmark() {
 
     renderBenchmarkResults(data);
     document.getElementById('exp-results').style.display = 'block';
+    if (data.warnings && data.warnings.length) {
+      alert(data.warnings.join('\n'));
+    }
   } catch (e) {
     alert('Ошибка эксперимента: ' + e.message);
   } finally {

@@ -1,11 +1,11 @@
 """Проверки защит вокруг модели. Сеть и ключ не нужны: вместо модели подставляется заглушка.
 Эти тесты проверяют КОД (что он не доверяет модели вслепую), а не качество самой модели."""
 import json
-import os
 import sys
-import tempfile
 import types
 import unittest
+import uuid
+from pathlib import Path
 
 try:
     import openai  # noqa: F401
@@ -14,7 +14,7 @@ except ImportError:                       # тесты не требуют на�
 
 from parsers import Item
 import match
-from llm_resolver import resolve, parse_answer, model_only_results
+from llm_resolver import resolve, parse_answer, model_only_results, YandexClient
 
 
 class Fake:
@@ -23,6 +23,27 @@ class Fake:
     def ask(self, system, user):
         self.n += 1
         return self.fn(user)
+
+
+class _FallbackClient:
+    def __init__(self, response_error=None, chat_error=None):
+        self.response_error = response_error
+        self.chat_error = chat_error
+        self.chat_calls = 0
+        self.responses = types.SimpleNamespace(create=self._responses_create)
+        self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self._chat_create))
+
+    def _responses_create(self, **kwargs):
+        if self.response_error:
+            raise self.response_error
+        return types.SimpleNamespace(output_text="ответ")
+
+    def _chat_create(self, **kwargs):
+        self.chat_calls += 1
+        if self.chat_error:
+            raise self.chat_error
+        msg = types.SimpleNamespace(content="резервный ответ")
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)])
 
 
 def pick_by_word(word):
@@ -49,9 +70,19 @@ def base(vor, lsr):
 
 class T(unittest.TestCase):
     def setUp(self):
-        self.cache = os.path.join(tempfile.mkdtemp(), "c.json")
+        self.cache_files = []
+        self.cache = self._cache_file("llm_test_cache")
         self.vor, self.lsr = mk()
         self.base = base(self.vor, self.lsr)
+
+    def _cache_file(self, prefix):
+        path = Path(__file__).resolve().parent / f".{prefix}_{uuid.uuid4().hex}.json"
+        self.cache_files.append(path)
+        return str(path)
+
+    def tearDown(self):
+        for path in self.cache_files:
+            path.unlink(missing_ok=True)
 
     def run_resolve(self, cli, **kw):
         return resolve(self.base, self.vor, self.lsr, cli, cache_path=self.cache, verbose=False, **kw)
@@ -80,10 +111,44 @@ class T(unittest.TestCase):
         b = self.base
         _, st = self.run_resolve(Fake(lambda u: "не знаю"))
         self.assertGreaterEqual(st["invalid"], 1)
-        self.cache = os.path.join(tempfile.mkdtemp(), "c2.json")   # чистый кэш
+        self.cache = self._cache_file("llm_test_cache")   # чистый кэш
         def boom(u): raise RuntimeError("сеть")
-        res, st = self.run_resolve(Fake(boom))
+        with self.assertLogs('llm_resolver', level='ERROR') as captured:
+            res, st = self.run_resolve(Fake(boom))
         self.assertGreaterEqual(st["errors"], 1); self.assertEqual(len(res), len(b))
+        failed = next(r for r in res if r.get('vor') == '2')
+        self.assertEqual(failed['ai_decision'], 'Модель не ответила')
+        self.assertIn('сеть', failed['ai_reason'])
+        self.assertTrue(any('позиции ВОР' in line for line in captured.output))
+
+    def test_yandex_fallback_succeeds_after_first_interface_fails(self):
+        client = YandexClient.__new__(YandexClient)
+        fake = _FallbackClient(response_error=RuntimeError('responses недоступен'))
+        client.client = fake
+        client.model = 'fake-model'
+        client.total_input_tokens = 0
+        client.total_output_tokens = 0
+        client._tokens_lock = __import__('threading').Lock()
+
+        self.assertEqual(client.ask('system', 'user'), 'резервный ответ')
+        self.assertEqual(fake.chat_calls, 1)
+
+    def test_yandex_raises_when_both_interfaces_fail(self):
+        client = YandexClient.__new__(YandexClient)
+        fake = _FallbackClient(
+            response_error=RuntimeError('responses упал'),
+            chat_error=RuntimeError('chat упал')
+        )
+        client.client = fake
+        client.model = 'fake-model'
+        client.total_input_tokens = 0
+        client.total_output_tokens = 0
+        client._tokens_lock = __import__('threading').Lock()
+
+        with self.assertLogs('llm_resolver', level='ERROR'):
+            with self.assertRaisesRegex(RuntimeError, 'chat упал'):
+                client.ask('system', 'user')
+        self.assertEqual(fake.chat_calls, 1)
 
     def test_cache_avoids_second_call(self):
         c1 = Fake(pick_by_word("аппарат")); self.run_resolve(c1)
@@ -210,12 +275,12 @@ class T(unittest.TestCase):
                 r["is_ambiguous"] = True
                 r["conflict_reason"] = "Конкуренция за сметную расценку"
 
-        cache1 = os.path.join(tempfile.mkdtemp(), "c1.json")
+        cache1 = self._cache_file("llm_order_cache")
         res_forward, _ = resolve(b, vor, lsr, Fake(smart_fake), mode="arbitration", cache_path=cache1, verbose=False)
         map_forward = {r["vor"]: r["lsr"] for r in res_forward if r.get("vor")}
 
         b_reversed = [b[1], b[0]] + [r for r in b if r.get("vor") is None]
-        cache2 = os.path.join(tempfile.mkdtemp(), "c2.json")
+        cache2 = self._cache_file("llm_order_cache")
         res_reversed, _ = resolve(b_reversed, vor, lsr, Fake(smart_fake), mode="arbitration", cache_path=cache2, verbose=False)
         map_reversed = {r["vor"]: r["lsr"] for r in res_reversed if r.get("vor")}
 

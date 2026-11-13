@@ -88,6 +88,23 @@ class TestMatching(unittest.TestCase):
         self.assertEqual(v_res['cls'], 'Нет в рассматриваемой смете')
         self.assertIsNone(v_res['lsr'])
 
+    def test_duplicate_rows_require_identical_quantity(self):
+        name = "Монтаж извещателя пожарного дымового"
+        lsr = [Item('LSR', 10, '10', 'ГЭСН-01', name, 'шт', 2.0)]
+        vor = [
+            Item('VOR', 1, '1', '', name, 'шт', 2.0),
+            Item('VOR', 2, '2', '', name, 'шт', 2.0),
+            Item('VOR', 3, '3', '', name, 'шт', 3.0),
+        ]
+
+        results = match.match(vor, lsr, thr=0.50, min_text_threshold=0.20)
+        duplicate = next(r for r in results if r['vor'] == '2')
+        different_quantity = next(r for r in results if r['vor'] == '3')
+
+        self.assertEqual(duplicate['cls'], 'Дубль')
+        self.assertEqual(duplicate['lsr'], '10')
+        self.assertNotEqual(different_quantity['cls'], 'Дубль')
+
     def test_unit_conversion_match(self):
         # 8.5 м2 в ВОР и 0.085 100 м2 в ЛСР должны дать 'Совпало (с пересчетом единиц)'
         name = "Окрашивание водоэмульсионными составами поверхностей потолков"

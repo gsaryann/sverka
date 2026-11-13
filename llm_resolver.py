@@ -11,6 +11,7 @@
 import os
 import re
 import json
+import logging
 import time
 import hashlib
 import threading
@@ -38,6 +39,8 @@ except ImportError:
 from parsers import Item
 from match import similarity, evaluate_pair
 from units import to_base
+
+logger = logging.getLogger(__name__)
 
 WORK_PREFIXES = (
     "монтаж", "установка", "демонтаж", "прокладка", "подключение",
@@ -179,17 +182,23 @@ class YandexClient:
             if hasattr(resp, "output") and resp.output:
                 return resp.output[0].text
         except Exception:
+            # Responses API может быть недоступен для конкретной модели;
+            # пробуем совместимый Chat Completions интерфейс.
             pass
 
-        resp = self.client.chat.completions.create(
-            model=self.model,
-            temperature=0,
-            max_tokens=1000,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user}
-            ]
-        )
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                temperature=0,
+                max_tokens=1000,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user}
+                ]
+            )
+        except Exception:
+            logger.exception("Оба интерфейса Yandex AI завершились ошибкой")
+            raise
         usage = getattr(resp, "usage", None)
         if usage:
             inp = getattr(usage, "prompt_tokens", 0) or 0
@@ -486,6 +495,16 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
                 done_count += 1
                 if err:
                     stats["errors"] += 1
+                    logger.error(
+                        "ИИ не ответил для позиции ВОР №%s: %s",
+                        t["v"].num, err,
+                        exc_info=(type(err), err, err.__traceback__)
+                    )
+                    r = t["r"]
+                    r["ai_decision"] = "Модель не ответила"
+                    r["ai_reason"] = str(err)
+                    note = f"Модель не ответила: {err}"
+                    r["explanation"] = f"{r.get('explanation', '')}; {note}".strip("; ")
                     if verbose:
                         print(f"  Ошибка запроса к ИИ: {err}")
                 elif ans:

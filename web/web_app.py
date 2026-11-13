@@ -10,6 +10,7 @@ import sys
 import io
 import csv
 import json
+import logging
 import copy
 import random
 import tempfile
@@ -20,6 +21,8 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from flask import Flask, request, jsonify, Response, stream_with_context
+
+logger = logging.getLogger(__name__)
 
 # Автоматическое подключение корневой папки проекта в sys.path
 WEB_DIR = Path(__file__).resolve().parent
@@ -426,6 +429,7 @@ def api_action_row():
 @app.route('/api/benchmark', methods=['POST'])
 def api_benchmark():
     try:
+        benchmark_warnings = []
         data = request.get_json() or {}
         preset = data.get('preset', 'set1')
         shuffle = bool(data.get('shuffle', False))
@@ -521,8 +525,9 @@ def api_benchmark():
                 'nv_prec': ev_llm['nv_prec'],
                 'nv_rec': ev_llm['nv_rec']
             })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("Не удалось выполнить LLM-арбитраж в бенчмарке")
+            benchmark_warnings.append(f"LLM-арбитраж не выполнен: {e}")
 
         conf_list = []
         for (t_cls, p_cls), cnt in sorted(ev_smart['conf'].items(), key=lambda x: -x[1])[:8]:
@@ -534,7 +539,8 @@ def api_benchmark():
 
         return jsonify({
             'methods': methods_data,
-            'confusion': conf_list
+            'confusion': conf_list,
+            'warnings': benchmark_warnings
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
