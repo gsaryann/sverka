@@ -21,3 +21,10 @@ results/clean_test.csv
 llm_cache.json
 *.tmp
 
+# Презентации, доклады и графика для них (личные/временные)
+*.pptx
+ПРЕЗЕНТАЦИЯ*.md
+ДОКЛАД*.md
+results/*.png
+
+
