@@ -68,6 +68,16 @@ class TestParsers(unittest.TestCase):
         self.assertIn("3х1.5", chars.get("cables", []))
         self.assertIn("25", chars.get("diameters", []))
 
+    def test_fraction_range_extraction_and_code_exclusions(self):
+        expected = ["5-40"]
+        for dash in ("-", "–", "—"):
+            chars = extract_technical_characteristics(f"Щебень фракции 5{dash}40 мм")
+            self.assertEqual(chars.get("ranges"), expected)
+
+        for code in ("ГОСТ 8736-2014", "ПФ-115", "М-200"):
+            chars = extract_technical_characteristics(code)
+            self.assertNotIn("ranges", chars)
+
     def test_normalize_text(self):
         raw = "Монтаж   светильников  LED (светодиодных) 220В!"
         norm = normalize_text(raw)
@@ -134,6 +144,20 @@ class TestMatching(unittest.TestCase):
         v_res = next(r for r in res if r['vor'] == '1')
         self.assertEqual(v_res['lsr'], '1')
         self.assertEqual(v_res['cls'], 'Расхождение характеристик')
+
+    def test_fraction_range_discrepancy_and_match(self):
+        def compare(vor_name, lsr_name):
+            v = Item('VOR', 1, '1', '', vor_name, 'т', 1.0)
+            l = Item('LSR', 1, '1', 'ГЭСН-05', lsr_name, 'т', 1.0)
+            return next(r for r in match.match([v], [l]) if r['vor'] == '1')
+
+        mismatch = compare("Щебень фракции 5–40 мм", "Щебень фракции 20–40 мм")
+        self.assertEqual(mismatch['cls'], 'Расхождение характеристик')
+        self.assertIn('5–40', mismatch['explanation'])
+        self.assertIn('20–40', mismatch['explanation'])
+
+        same = compare("Щебень фракции 5-40 мм", "Щебень фракции 5—40 мм")
+        self.assertEqual(same['cls'], 'Совпало')
 
     def test_incompatible_units(self):
         name = "Устройство теплоизоляции минераловатными плитами"

@@ -174,6 +174,26 @@ def extract_technical_characteristics(text: str) -> Dict[str, Any]:
     if not text:
         return chars
 
+    # Фракционные диапазоны и размеры: дефис и различные тире приводим к одной форме.
+    # Сначала извлекаем кандидаты, затем требуем доменный контекст или единицу измерения,
+    # чтобы не трактовать нормативные шифры вроде ГОСТ 8736-2014 как диапазон.
+    range_pattern = re.compile(
+        r"(?<![\w.])(?P<lo>\d+(?:[.,]\d+)?)\s*[-‐‑‒–—−]\s*"
+        r"(?P<hi>\d+(?:[.,]\d+)?)(?![\w.])"
+    )
+    ranges = set()
+    for match_range in range_pattern.finditer(text):
+        before = text[max(0, match_range.start() - 40):match_range.start()]
+        after = text[match_range.end():match_range.end() + 12]
+        has_label = bool(re.search(r"(?:фракц\w*|размер\w*)\D{0,30}$", before, re.IGNORECASE))
+        has_unit = bool(re.match(r"\s*(?:мм|см|м)\b", after, re.IGNORECASE))
+        if has_label or has_unit:
+            lo = f"{float(match_range.group('lo').replace(',', '.')):g}"
+            hi = f"{float(match_range.group('hi').replace(',', '.')):g}"
+            ranges.add(f"{lo}-{hi}")
+    if ranges:
+        chars["ranges"] = sorted(ranges)
+
     # 1. Сечения кабелей и проводов (например 3х1.5, 3х2,5, 5х16)
     cables = re.findall(r"\b(\d+)\s*[хx×*]\s*(\d+(?:[.,]\d+)?)\b", text, re.IGNORECASE)
     if cables:

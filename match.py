@@ -56,6 +56,13 @@ def compare_technical_characteristics(v_chars: Dict[str, Any], l_chars: Dict[str
     Возвращает (совпали_ли, текстовое_описание_различий)."""
     diffs = []
 
+    # Сравнение фракций и диапазонов размеров по обеим границам.
+    v_ranges = set(v_chars.get("ranges", []))
+    l_ranges = set(l_chars.get("ranges", []))
+    if v_ranges and l_ranges and not (v_ranges & l_ranges):
+        fmt = lambda values: ", ".join(value.replace("-", "–") for value in sorted(values))
+        diffs.append(f"диапазон ВОР {fmt(v_ranges)} и ЛСР {fmt(l_ranges)}")
+
     # 1. Сравнение сечений кабелей
     v_cables = set(v_chars.get("cables", []))
     l_cables = set(l_chars.get("cables", []))
