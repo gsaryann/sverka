@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 from typing import List, Dict, Any
 
-from parsers import parse_vor, parse_lsr, Item
+from parsers import parse_vor, parse_lsr, get_parse_warnings, Item
 import match
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -72,7 +72,9 @@ def main():
     print(f"Чтение файлов:\n  ВОР: {vor_path}\n  ЛСР: {lsr_path}")
     try:
         vor = parse_vor(str(vor_path))
+        parse_warnings = get_parse_warnings()
         lsr = parse_lsr(str(lsr_path))
+        parse_warnings += get_parse_warnings()
     except ValueError as e:
         sys.exit(f'Ошибка структуры данных: {e}')
     except Exception as e:
@@ -80,6 +82,9 @@ def main():
 
     print(f"  Прочитано позиций ВОР: {len(vor)}")
     print(f"  Прочитано позиций ЛСР: {len(lsr)}")
+    if parse_warnings:
+        print(f"Не удалось прочитать объём или проверить формулу в {len(parse_warnings)} строках:")
+        for w in parse_warnings[:5]: print(f"  {w['doc']} {w['sheet']}:{w['row']} {w['text']}: {w['reason']}")
 
     _warn_duplicates(vor, 'ВОР')
     _warn_duplicates(lsr, 'ЛСР')

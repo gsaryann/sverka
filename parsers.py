@@ -5,8 +5,31 @@
 """
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Tuple
+import ast
+import operator
 import re
 import openpyxl
+
+_PARSE_WARNINGS: List[Dict[str, Any]] = []
+
+def get_parse_warnings() -> List[Dict[str, Any]]:
+    return list(_PARSE_WARNINGS)
+
+def _formula_value(expr: str) -> Optional[float]:
+    expr = expr.replace(',', '.').replace('−', '-')
+    if not re.fullmatch(r'[\d.()+*/\-\s]+', expr): return None
+    try: tree = ast.parse(expr, mode='eval')
+    except SyntaxError: return None
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+           ast.UAdd: operator.pos, ast.USub: operator.neg}
+    def ev(n):
+        if isinstance(n, ast.Expression): return ev(n.body)
+        if isinstance(n, ast.Constant) and type(n.value) in (int, float): return float(n.value)
+        if isinstance(n, ast.BinOp) and type(n.op) in ops: return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops: return ops[type(n.op)](ev(n.operand))
+        raise ValueError
+    try: return ev(tree)
+    except (ValueError, ZeroDivisionError, OverflowError): return None
 
 
 @dataclass
@@ -65,14 +88,22 @@ def _f(value) -> Optional[float]:
         return None
     if isinstance(value, (int, float)):
         return float(value)
-    s = str(value).replace("\u00a0", "").replace(" ", "").replace(",", ".")
-    # Проверка на валидное число
-    if not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", s):
+    # В закупочных ВОР количество нередко записано как результат расчёта:
+    # "1,26\n(2,5+2,5+...) / 10". Для сопоставления берём только ведущий
+    # объём, не пытаясь повторно вычислять формулу. Поддерживаем Unicode-минусы.
+    s = str(value).replace("\u00a0", " ").replace("−", "-").replace("–", "-").strip()
+    m = re.match(r"^([+-]?\s*(?:\d{1,3}(?:[ \u202f]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d*)?|[.,]\d+))(.*)$", s, re.S)
+    if not m:
         return None
+    head, tail = m.group(1), m.group(2)
     try:
-        return float(s)
+        result = float(head.replace(" ", "").replace("\u202f", "").replace(",", "."))
     except ValueError:
         return None
+    calc = _formula_value(tail.strip())
+    if calc is not None and abs(calc-result) > .01 * max(abs(result), 1e-12):
+        _PARSE_WARNINGS.append(dict(doc="", sheet="", row=None, text=str(value), reason=f"Формула даёт {calc:g}, число {result:g}"))
+    return result
 
 
 def _clean_num(value) -> str:
@@ -114,7 +145,7 @@ def _is_ref_header(v: str, doc: str) -> bool:
     """Определяет, является ли колонка ссылочной."""
     if doc == "VOR":
         # В ВОР ссылка — это ссылка на номер в ЛСР / смете
-        return any(k in v for k in ("лср", "номер в лср", "в лср", "по смете", "ссылка на смет", "пункт лср"))
+        return any(k in v for k in ("лср", "номер в лср", "в лср", "по смете", "ссылка на смет", "пункт лср", "обоснование"))
     else:
         # В ЛСР ссылка — это шифр расценки, обоснование норматива, код ресурса
         return any(k in v for k in ("обоснование", "шифр", "код расценки", "шифр норматива", "код ресурса"))
@@ -257,10 +288,18 @@ def _read_sheet(ws, doc: str):
 
         name = _s(cell(cols["name"]))
         unit = _s(cell(cols["unit"]))
-        qty = _f(cell(cols["qty"]))
+        raw_qty = cell(cols["qty"])
+        warning_start = len(_PARSE_WARNINGS)
+        qty = _f(raw_qty)
+        for warning in _PARSE_WARNINGS[warning_start:]:
+            warning.update(doc=doc, sheet=ws.title, row=row_idx, text=name)
 
         # Исключаем служебные строки и строки разделов
-        if not name or not unit or qty is None:
+        if not name or not unit:
+            continue
+        if qty is None:
+            _PARSE_WARNINGS.append(dict(doc=doc, sheet=ws.title, row=row_idx, text=name,
+                                        reason=f"Не удалось прочитать объём: {raw_qty!r}"))
             continue
 
         # Строка с номерами колонок ("1", "2", "3", ...)
@@ -325,9 +364,11 @@ def _read(path: str, doc: str) -> List[Item]:
 
 def parse_vor(path: str) -> List[Item]:
     """Читает позиции ВОР из Excel с автоматическим определением структуры."""
+    _PARSE_WARNINGS.clear()
     return _read(path, "VOR")
 
 
 def parse_lsr(path: str) -> List[Item]:
     """Читает позиции ЛСР из Excel с автоматическим определением структуры."""
+    _PARSE_WARNINGS.clear()
     return _read(path, "LSR")

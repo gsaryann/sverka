@@ -30,7 +30,7 @@ ROOT_DIR = WEB_DIR.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from parsers import parse_vor, parse_lsr, Item
+from parsers import parse_vor, parse_lsr, get_parse_warnings, Item
 import match
 import baseline_legacy
 import perturb
@@ -169,7 +169,9 @@ def api_compare():
             return jsonify({'error': 'Файлы документов не найдены'}), 404
 
         vor = parse_vor(str(vor_path))
+        parse_warnings = get_parse_warnings()
         lsr = parse_lsr(str(lsr_path))
+        parse_warnings += get_parse_warnings()
 
         is_compat, overlap_ratio, compat_msg = match.check_document_compatibility(vor, lsr)
         warning_msg = None
@@ -214,7 +216,7 @@ def api_compare():
         if llm_stats:
             stats['llm_stats'] = llm_stats
 
-        resp_payload = {'stats': stats, 'rows': rows}
+        resp_payload = {'stats': stats, 'rows': rows, 'parse_warnings': parse_warnings}
         if warning_msg:
             resp_payload['warning'] = warning_msg
 
@@ -268,7 +270,9 @@ def api_compare_stream():
             return jsonify({'error': 'Файлы документов не найдены'}), 404
 
         vor = parse_vor(str(vor_path))
+        parse_warnings = get_parse_warnings()
         lsr = parse_lsr(str(lsr_path))
+        parse_warnings += get_parse_warnings()
 
         is_compat, overlap_ratio, compat_msg = match.check_document_compatibility(vor, lsr)
         warning_msg = None
@@ -315,7 +319,7 @@ def api_compare_stream():
             )
 
             # Передаем первичное состояние сопоставления клиенту мгновенно
-            yield f"data: {json.dumps({'type': 'init', 'stats': init_stats, 'rows': init_rows, 'ambig_count': ambig_count, 'mode': stream_mode, 'needs_llm': bool(llm_needed and ambig_count > 0), 'warning': warning_msg}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'init', 'stats': init_stats, 'rows': init_rows, 'ambig_count': ambig_count, 'mode': stream_mode, 'needs_llm': bool(llm_needed and ambig_count > 0), 'warning': warning_msg, 'parse_warnings': parse_warnings}, ensure_ascii=False)}\n\n"
 
             # 2. Потоковый арбитраж спорных позиций Алисой
             if llm_needed and ambig_count > 0:

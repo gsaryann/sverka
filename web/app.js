@@ -140,6 +140,11 @@ async function runCompare() {
             guard.textContent = '⚠️ ' + msg.warning;
             guard.style.display = 'block';
           }
+          if (msg.parse_warnings && msg.parse_warnings.length && guard) {
+            const examples = msg.parse_warnings.slice(0, 5).map(w => `${w.doc} ${w.sheet}:${w.row} — ${w.reason}`).join('\n');
+            guard.textContent = `${guard.textContent ? guard.textContent + '\n' : ''}⚠️ Не удалось прочитать объём или проверить формулу в ${msg.parse_warnings.length} строках.\n${examples}`;
+            guard.style.display = 'block';
+          }
 
           if (msg.type === 'init') {
             tableData = msg.rows || [];

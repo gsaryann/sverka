@@ -1,11 +1,32 @@
 """Комплексный набор модульных тестов для системы сопоставления строительной документации."""
 import unittest
-from parsers import Item, normalize_text, extract_technical_characteristics
+from parsers import Item, normalize_text, extract_technical_characteristics, _f, parse_vor, parse_lsr
 from units import parse_unit, to_base
 import match
 from match import apply_formulation_warnings
 from perturb import make_set
 from evaluate import evaluate
+
+class TestQuantityFormulaRegression(unittest.TestCase):
+    def test_formula_cells_and_negative_values(self):
+        cases=[('0,01 1 / 100',.01),('1,26 (2,5+2,5+2+1,5+0,8+0,8+2,5) / 10',1.26),
+               ('1,45 12,5*1*0,1+2*1*0,1',1.45),('1,3584582 1,509398*0,9',1.3584582),
+               ('-1.509398',-1.509398),('2.52',2.52),('1 000,5',1000.5)]
+        for raw, expected in cases:
+            with self.subTest(raw=raw): self.assertAlmostEqual(_f(raw),expected)
+        self.assertIsNone(_f('абв')); self.assertIsNone(_f(''))
+
+    def test_formula_mismatch_warns(self):
+        from parsers import _PARSE_WARNINGS
+        _PARSE_WARNINGS.clear(); self.assertEqual(_f('5 1+1'),5); self.assertTrue(_PARSE_WARNINGS)
+
+    def test_23_item_workbook_and_suite_regression_counts(self):
+        items=parse_vor('data/Приложение №2.3.1 Ведомость объемов работ №2.xlsx')
+        self.assertEqual([x.num for x in items],[str(i) for i in range(1,24)])
+        for n,q in {1:.01,3:1.26,6:1.45,11:-1.509398,12:1.3584582,13:1.847}.items(): self.assertAlmostEqual(items[n-1].qty,q)
+        pairs=[('data/ВОР.xlsx','data/ЛСР.xlsx',86,86),('data/ВОР освещение КОРР.xlsx','data/ЛСР освещение КОРР.xlsx',137,137),('data/ВОР (1 этаж кабинеты).xlsx','data/ЛСР (1 этаж кабинеты).xlsx',534,534),('data/ВЕДОМОСТЬ ОБЪЕМОВ РАБОТ.xlsx','data/ЛОКАЛЬНЫЙ СМЕТНЫЙ РАСЧЕТ.xlsx',83,83),('data/02_01_01_чайная_Анастасьевка__Текущий_ремонт___Дефектная_ведомость_по_смете_2.xlsx','data/02_01_01_чайная_Анастасьевка__Текущий_ремонт___ЛСР_по_Методике_2020__РИМ__2.xlsx',371,371)]
+        for v,l,nv,nl in pairs:
+            with self.subTest(pair=v): self.assertEqual((len(parse_vor(v)),len(parse_lsr(l))),(nv,nl))
 
 
 class TestUnits(unittest.TestCase):
