@@ -12,6 +12,8 @@ import csv
 import json
 import logging
 import copy
+import hashlib
+import re
 import random
 import tempfile
 import threading
@@ -31,6 +33,39 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from parsers import parse_vor, parse_lsr, get_parse_warnings, Item
+
+
+def _document_kind(path: Path) -> str | None:
+    """Classify an uploaded workbook from its title and table headers."""
+    from openpyxl import load_workbook
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        text = []
+        for ws in wb.worksheets:
+            for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 45), values_only=True):
+                text.extend(str(v).lower().replace('ё', 'е') for v in row if v is not None)
+    finally:
+        wb.close()
+    blob = ' '.join(text)
+    vor = sum(bool(re.search(p, blob)) for p in (r'ведомост\w* объем\w* работ', r'\bвор\b', r'формула расчета объемов работ'))
+    lsr = sum(bool(re.search(p, blob)) for p in (r'локальн\w* смет\w* расчет', r'\bлср\b', r'обоснование'))
+    if vor == lsr:
+        return None
+    return 'vor' if vor > lsr else 'lsr'
+
+
+def _validate_document_pair(vor_path: Path, lsr_path: Path) -> str | None:
+    if hashlib.sha256(vor_path.read_bytes()).digest() == hashlib.sha256(lsr_path.read_bytes()).digest():
+        return 'Загружен один и тот же файл в оба поля. Выберите отдельные ВОР и ЛСР.'
+    kind_v, kind_l = _document_kind(vor_path), _document_kind(lsr_path)
+    if kind_v == kind_l and kind_v in ('vor', 'lsr'):
+        label = 'ВОР' if kind_v == 'vor' else 'ЛСР'
+        return f'В оба поля загружены документы типа {label}. Для сверки нужны одна ВОР и одна ЛСР.'
+    if kind_v == 'lsr' and kind_l == 'vor':
+        return 'Файлы, похоже, перепутаны: в поле ВОР загружена ЛСР, а в поле ЛСР — ВОР. Поменяйте их местами и запустите сверку снова.'
+    if kind_v != 'vor' or kind_l != 'lsr':
+        return 'Не удалось подтвердить типы файлов: в поле ВОР загрузите ведомость объёмов работ, а в поле ЛСР — локальный сметный расчёт.'
+    return None
 import match
 import baseline_legacy
 import perturb
@@ -168,6 +203,10 @@ def api_compare():
         if not vor_path.exists() or not lsr_path.exists():
             return jsonify({'error': 'Файлы документов не найдены'}), 404
 
+        pair_error = _validate_document_pair(vor_path, lsr_path)
+        if pair_error:
+            return jsonify({'error': pair_error}), 400
+
         vor = parse_vor(str(vor_path))
         parse_warnings = get_parse_warnings()
         lsr = parse_lsr(str(lsr_path))
@@ -268,6 +307,10 @@ def api_compare_stream():
 
         if not vor_path.exists() or not lsr_path.exists():
             return jsonify({'error': 'Файлы документов не найдены'}), 404
+
+        pair_error = _validate_document_pair(vor_path, lsr_path)
+        if pair_error:
+            return jsonify({'error': pair_error}), 400
 
         vor = parse_vor(str(vor_path))
         parse_warnings = get_parse_warnings()

@@ -284,6 +284,17 @@ def evaluate_pair(v: Item, l: Item, text_sim: float, tol: float = 1e-3) -> Match
     elif not qty_matched:
         classification = "Расхождение объёма"
         explanation_parts.append(f"Различие объема: ВОР={v.qty} {v.unit} ({q_v:.4f} базовых) vs ЛСР={l.qty} {l.unit} ({q_l:.4f} базовых)")
+        # Одинаковое числовое значение при единицах с коэффициентом 100
+        # (например, м2 и 100 м2) часто указывает на ошибку единицы или
+        # масштаба объёма в исходном документе. Оставляем это как подсказку,
+        # а не автоматическое исправление: проверить нужно по расчёту работ.
+        if (v.qty is not None and l.qty is not None
+                and abs(float(v.qty) - float(l.qty)) <= tol * max(abs(float(v.qty)), abs(float(l.qty)), 1e-9)
+                and q_v is not None and q_l is not None
+                and min(abs(q_v), abs(q_l)) > 1e-9
+                and (abs(max(abs(q_v), abs(q_l)) / min(abs(q_v), abs(q_l)) - 100.0) <= 0.1
+                     or abs(max(abs(q_v), abs(q_l)) / min(abs(q_v), abs(q_l)) - 1000.0) <= 1.0)):
+            explanation_parts.append("Возможна ошибка единиц измерения или масштаба объёма: числовые значения совпадают, но коэффициент единицы меняет объём в 100/1000 раз; проверьте исходный расчёт")
     else:
         if same_unit_name:
             classification = "Совпало"
