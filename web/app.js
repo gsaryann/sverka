@@ -301,7 +301,17 @@ function renderWork() {
             </tr>
           </thead>
           <tbody>
-            ${rows || '<tr><td colspan="7" style="padding:28px; text-align:center; color:var(--mut);">Ничего не найдено. Сбросьте фильтр или строку поиска.</td></tr>'}
+            ${ROWS.length === 0 ? `
+              <tr>
+                <td colspan="7" style="padding:48px 20px; text-align:center; color:var(--mut);">
+                  <div style="font-size:32px; margin-bottom:10px;">📁</div>
+                  <b style="font-size:15px; color:var(--ink);">Сметные документы ещё не загружены</b>
+                  <div style="font-size:13px; margin-top:6px; color:var(--mut);">
+                    Выберите файлы ведомости объёмов работ (ВОР) и сметы (ЛСР по 421/пр) выше и нажмите кнопку <b>«Сверить документы»</b>.
+                  </div>
+                </td>
+              </tr>
+            ` : (rows || '<tr><td colspan="7" style="padding:28px; text-align:center; color:var(--mut);">Ничего не найдено. Сбросьте фильтр или строку поиска.</td></tr>')}
           </tbody>
         </table>
       </div>
@@ -766,10 +776,25 @@ async function checkAuth() {
       document.getElementById('user-role-badge').textContent = data.user.role === 'lead' ? 'Руководитель' : 'Сметчик';
       document.getElementById('btn-logout').style.display = 'inline';
 
-      // Научный бенчмарк показываем только для руководящей роли автора
+      const isLead = data.user.role === 'lead';
+
+      // Научный бенчмарк и пресеты объектов ВКР доступны ТОЛЬКО автору (роль lead)
       const bBtn = document.getElementById('btn-benchmark');
       if (bBtn) {
-        bBtn.style.display = data.user.role === 'lead' ? 'inline-flex' : 'none';
+        bBtn.style.display = isLead ? 'inline-flex' : 'none';
+      }
+
+      const pBar = document.getElementById('presets-bar');
+      if (pBar) {
+        pBar.style.display = isLead ? 'flex' : 'none';
+      }
+
+      if (!isLead) {
+        // Обычные пользователи начинают с чистого листа: без чужих демонстрационных строк
+        activePreset = null;
+        ROWS = [];
+        currentProjectTitle = '';
+        render();
       }
     } else {
       // Закрытый доступ: без авторизации в рабочий терминал не пускаем
