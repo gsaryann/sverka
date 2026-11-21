@@ -30,7 +30,10 @@ if str(ROOT_DIR) not in sys.path:
 
 from flask import Flask, request, jsonify, Response, stream_with_context, session, redirect
 from sqlalchemy import desc
-from db import SessionLocal, User, Project, AuditItem, init_db
+from db import (
+    SessionLocal, User, Project, AuditProject,
+    AuditItem, MatchResult, Document, LLMLog, init_db
+)
 
 logger = logging.getLogger(__name__)
 
@@ -839,12 +842,17 @@ def api_projects_list():
 def api_project_detail(project_id):
     db_sess = SessionLocal()
     try:
-        project = db_sess.query(Project).filter_by(id=project_id).first()
+        project = db_sess.query(AuditProject).filter_by(id=project_id).first()
         if not project:
             return jsonify({'error': 'Проект не найден'}), 404
-        items = [it.to_dict() for it in project.items]
+        items = [it.to_dict() for it in project.match_results]
+        documents = [doc.to_dict() for doc in project.documents]
+        llm_logs = [log.to_dict() for log in project.llm_logs]
         res = project.to_dict()
         res['items'] = items
+        res['match_results'] = items
+        res['documents'] = documents
+        res['llm_logs'] = llm_logs
         return jsonify(res)
     finally:
         db_sess.close()
@@ -858,25 +866,66 @@ def api_project_save():
     title = data.get('title', 'Новая сверка')
     object_name = data.get('object_name', title)
     items_data = data.get('items', [])
+    vor_fn = data.get('vor_filename')
+    lsr_fn = data.get('lsr_filename')
+    total_pos = int(data.get('total_positions', len(items_data)))
+    matched_cnt = int(data.get('matched_count', 0))
+    match_rate = float(data.get('match_rate', round(matched_cnt / total_pos * 100, 1) if total_pos else 0.0))
 
     db_sess = SessionLocal()
     try:
-        project = Project(
+        project = AuditProject(
             user_id=user_id,
             title=title,
             object_name=object_name,
-            vor_filename=data.get('vor_filename'),
-            lsr_filename=data.get('lsr_filename'),
-            total_positions=data.get('total_positions', len(items_data)),
-            matched_count=data.get('matched_count', 0),
-            discrepancy_count=data.get('discrepancy_count', 0),
+            status=data.get('status', 'completed'),
+            match_rate=match_rate,
+            vor_filename=vor_fn,
+            lsr_filename=lsr_fn,
+            total_positions=total_pos,
+            matched_count=matched_cnt,
+            discrepancy_count=int(data.get('discrepancy_count', 0)),
             total_financial_risk=float(data.get('total_financial_risk', 0.0))
         )
         db_sess.add(project)
         db_sess.flush()
 
+        # Сохранение исходных документов (DOCUMENTS)
+        custom_docs = data.get('documents')
+        if custom_docs and isinstance(custom_docs, list):
+            for cd in custom_docs:
+                db_sess.add(Document(
+                    project_id=project.id,
+                    doc_type=cd.get('doc_type', 'DOC'),
+                    filename=cd.get('filename', 'doc.xlsx'),
+                    row_count=int(cd.get('row_count', 0))
+                ))
+        else:
+            if vor_fn:
+                db_sess.add(Document(
+                    project_id=project.id,
+                    doc_type="VOR",
+                    filename=vor_fn,
+                    row_count=data.get('vor_row_count', len(items_data))
+                ))
+            if lsr_fn:
+                db_sess.add(Document(
+                    project_id=project.id,
+                    doc_type="LSR",
+                    filename=lsr_fn,
+                    row_count=data.get('lsr_row_count', len(items_data))
+                ))
+
+        # Сохранение результатов сопоставления (MATCH_RESULTS)
         for item in items_data:
-            audit_item = AuditItem(
+            sim_val = float(item.get('sim', 0)) / 100.0 if item.get('sim') is not None else float(item.get('text_sim', 0.0))
+            is_ai_item = bool(item.get('ai', False))
+            formulation_warn = bool(
+                item.get('formulation_warn', False) or
+                (sim_val < 0.55 and item.get('s') not in ('none', 'ok') and item.get('detail_class') == 'Проверка наименования')
+            )
+
+            audit_item = MatchResult(
                 project_id=project.id,
                 row_num=item.get('n', 0),
                 vor_num=str(item.get('vor_num') or ''),
@@ -889,14 +938,41 @@ def api_project_save():
                 unit=item.get('u', ''),
                 unit_price=float(item['pr']) if item.get('pr') is not None else 0.0,
                 financial_risk=float(item.get('risk', 0.0)),
-                status=item.get('s', 'none'),
+                upper_status=item.get('s', 'none'),
                 detail_class=item.get('detail_class', ''),
-                similarity=float(item.get('sim', 0)) / 100.0 if item.get('sim') is not None else 0.0,
-                is_ai=bool(item.get('ai', False)),
+                text_sim=sim_val,
+                formulation_warn=formulation_warn,
+                is_ai=is_ai_item,
                 explanation=item.get('note', ''),
                 user_decision=item.get('decision')
             )
             db_sess.add(audit_item)
+
+            # Если позиция обрабатывалась ИИ-арбитром, фиксируем в LLM_LOGS
+            if is_ai_item:
+                db_sess.add(LLMLog(
+                    project_id=project.id,
+                    vor_name=item.get('vor', ''),
+                    decision=item.get('lsr', '') or item.get('detail_class', 'Арбитраж'),
+                    confidence=sim_val,
+                    prompt_tokens=int(item.get('prompt_tokens', 120)),
+                    completion_tokens=int(item.get('completion_tokens', 40)),
+                    cost_rub=float(item.get('cost_rub', 0.05))
+                ))
+
+        # Дополнительные логи ИИ из статистики, если переданы
+        custom_llm_logs = data.get('llm_logs')
+        if custom_llm_logs and isinstance(custom_llm_logs, list):
+            for log_entry in custom_llm_logs:
+                db_sess.add(LLMLog(
+                    project_id=project.id,
+                    vor_name=log_entry.get('vor_name', ''),
+                    decision=log_entry.get('decision', ''),
+                    confidence=float(log_entry.get('confidence', 0.0)),
+                    prompt_tokens=int(log_entry.get('prompt_tokens', 0)),
+                    completion_tokens=int(log_entry.get('completion_tokens', 0)),
+                    cost_rub=float(log_entry.get('cost_rub', 0.0))
+                ))
 
         db_sess.commit()
         return jsonify({'ok': True, 'project': project.to_dict()}), 201

@@ -129,6 +129,25 @@ class TestWebApiAuthAndProjects(unittest.TestCase):
         self.assertEqual(len(detail_data["items"]), 1)
         self.assertEqual(detail_data["items"][0]["code"], "ГЭСНм10-08-001-13")
 
+        # Проверяем документы и LLM логи из новой схемы ER-диаграммы
+        self.assertIn("documents", detail_data)
+        self.assertEqual(len(detail_data["documents"]), 2)
+        doc_types = {d["doc_type"] for d in detail_data["documents"]}
+        self.assertEqual(doc_types, {"VOR", "LSR"})
+
+        self.assertIn("llm_logs", detail_data)
+        self.assertEqual(len(detail_data["llm_logs"]), 1)
+        self.assertEqual(detail_data["llm_logs"][0]["vor_name"], "Монтаж Контроллера")
+
+        # Проверяем принятие решения инженером через API
+        item_id = detail_data["items"][0]["id"]
+        dec_res = self.client.post("/api/projects/item_decision", json={
+            "item_id": item_id,
+            "decision": "no"
+        })
+        self.assertEqual(dec_res.status_code, 200)
+        self.assertEqual(dec_res.get_json()["item"]["decision"], "no")
+
     def test_unrecognized_file_friendly_error(self):
         """Проверка понятного структурированного сообщения об ошибке при загрузке некорректного файла Excel."""
         import io
