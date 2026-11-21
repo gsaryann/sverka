@@ -1,226 +1,192 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <title>СверкаСмет | SmartMatcher</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>СверкаСмет | Интеллектуальный аудит сметной документации</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div class="wrapper">
-    <header>
-      <div>
-        <h1>СверкаСмет <span style="font-size: 13px; font-weight: normal; color: #555;">| Интеллектуальный аудит ВОР и ЛСР</span></h1>
-      </div>
-      <div class="nav-tabs">
-        <div class="nav-tab active" onclick="switchTab('tab-work', this)">Рабочая сверка смет</div>
-        <div class="nav-tab" onclick="switchTab('tab-exp', this)">Эксперименты и бенчмарк (ВКР)</div>
-      </div>
-    </header>
 
-    <!-- ==================== ВКЛАДКА 1: РАБОЧАЯ СВЕРКА ==================== -->
-    <div id="tab-work" class="tab-content active">
-      <div class="form-box">
-        <div class="row">
-          <div class="col">
-            <label>1. Ведомость объемов работ (ВОР .xlsx):</label>
-            <input type="file" id="f-vor" accept=".xlsx">
-          </div>
-          <div class="col">
-            <label>2. Локальный сметный расчет (ЛСР .xlsx):</label>
-            <input type="file" id="f-lsr" accept=".xlsx">
-          </div>
-          <div class="col">
-            <label>3. Режим сопоставления:</label>
-            <select id="w-mode">
-              <option value="algo" selected>SmartMatcher (детерминированный алгоритм v2)</option>
-              <option value="hybrid">SmartMatcher + Алиса (Двухуровневый арбитраж коллизий)</option>
-              <option value="hybrid_weak">SmartMatcher + Алиса (Только слабый текст — baseline)</option>
-              <option value="model_only">Только LLM (экспериментальный)</option>
-            </select>
-          </div>
-          <div class="col" style="width: 110px;">
-            <label>Порог сходства:</label>
-            <input type="number" id="w-thr" value="0.50" min="0.20" max="0.90" step="0.05">
-          </div>
-          <div class="col">
-            <button class="btn-primary" id="btn-compare" onclick="runCompare()">Сверить документы</button>
-          </div>
-          <span id="w-loading" style="display:none; color:#2563eb; font-weight:600; margin-left:8px;">Выполняется расчет...</span>
-        </div>
+<div class="app">
+  <!-- Top Navigation Header -->
+  <header class="top">
+    <div class="brand">
+      <a href="/" style="display:flex; align-items:baseline; gap:8px;">
+        <b>СверкаСмет</b>
+        <span>SmartMatcher · B2B SaaS</span>
+      </a>
+    </div>
 
-        <div class="presets-line">
-          Быстрый выбор реального документа:
-          <a onclick="loadPreset('set1')">Комплект 1 (Дворец молодёжи, 86 поз.)</a> | 
-          <a onclick="loadPreset('set2')">Комплект 2 (Ремонт помещений, 83 поз.)</a>
-          <b id="p-label" style="margin-left: 8px; color: #111;"></b>
+    <!-- User Profile & DB Projects -->
+    <div class="user-bar">
+      <div id="user-badge" class="user-pill">
+        <span class="user-icon">👤</span>
+        <span id="user-name">Загрузка профиля...</span>
+        <span id="user-role-badge" class="role-badge">Сметчик</span>
+        <button class="btn-text" id="btn-logout" onclick="logout()" title="Выйти">✕</button>
+      </div>
+      <button class="btn btn-sm" id="btn-history" onclick="openHistoryModal()">
+        📁 История проектов (PostgreSQL)
+      </button>
+      <button class="btn btn-sm btn-outline" onclick="openBenchmarkModal()" title="Сравнительные замеры ВКР">
+        📊 Научный бенчмарк (ВКР)
+      </button>
+    </div>
+  </header>
+
+  <!-- Controls & File Upload Bar -->
+  <section class="controls-card">
+    <div class="controls-grid">
+      <!-- File 1: VOR -->
+      <div class="ctl-col">
+        <label>Ведомость объёмов работ (ВОР .xlsx):</label>
+        <div class="file-picker">
+          <input type="file" id="f-vor" accept=".xlsx">
         </div>
       </div>
 
-      <!-- Предохранитель несовместимости проектов (Project Mismatch Guard) -->
-      <div id="w-guard-banner" style="display: none; background: #fff1f2; border: 1px solid #f87171; color: #991b1b; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; font-size: 13px; line-height: 1.5; font-weight: 500;">
+      <!-- File 2: LSR -->
+      <div class="ctl-col">
+        <label>Локальный сметный расчёт (ЛСР .xlsx):</label>
+        <div class="file-picker">
+          <input type="file" id="f-lsr" accept=".xlsx">
+        </div>
       </div>
 
-      <!-- Сводная строка -->
-      <div class="summary-box" id="w-summary" style="display: none;">
-        <div class="summary-left">
-          <span>Всего строк: <b id="ws-total">0</b></span>
-          <span>Совпало: <b id="ws-match" style="color: #15803d;">0</b></span>
-          <span>Расхождения: <b id="ws-diff" style="color: #b45309;">0</b></span>
-          <span>Без пары: <b id="ws-none" style="color: #64748b;">0</b></span>
-          <span style="border-left: 1px solid #ccc; padding-left: 10px;">
-            ⚠️ Спорных пар: <b id="ws-ambig" style="color: #dc2626;">0</b>
-          </span>
-          <span>Решено сметчиком: <b id="ws-decided" style="color: #166534;">0</b></span>
-          <span id="ws-ai-box" style="display: none;">Решено Алисой: <b id="ws-ai" style="color: #5b21b6;">0</b></span>
+      <!-- Mode & Threshold -->
+      <div class="ctl-col" style="min-width: 220px;">
+        <label>Режим сопоставления:</label>
+        <select id="w-mode" class="select-styled">
+          <option value="algo" selected>SmartMatcher (детерминированный v2)</option>
+          <option value="hybrid">SmartMatcher + Алиса (Двухуровневый ИИ-арбитраж)</option>
+          <option value="hybrid_weak">Только слабый текст (Baseline)</option>
+        </select>
+      </div>
+
+      <div class="ctl-col" style="width: 100px;">
+        <label>Порог сходства:</label>
+        <input type="number" id="w-thr" value="0.55" min="0.20" max="0.95" step="0.05" class="input-styled">
+      </div>
+
+      <!-- Actions -->
+      <div class="ctl-col ctl-actions">
+        <label>&nbsp;</label>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" id="btn-compare" onclick="runCompare()">
+            Сверить документы
+          </button>
+          <button class="btn btn-outline" id="btn-save-db" onclick="saveCurrentProjectToDB()" title="Сохранить результаты в PostgreSQL" style="display:none;">
+            💾 Сохранить в БД
+          </button>
         </div>
+      </div>
+    </div>
+
+    <!-- Presets bar -->
+    <div class="presets-row">
+      <span>Быстрый запуск на объектах ВКР:</span>
+      <button class="preset-pill active" onclick="loadPreset('set1', this)">1 · Дворец молодёжи (86 поз.)</button>
+      <button class="preset-pill" onclick="loadPreset('crystal', this)">2 · СФР «Кристалл» (137 поз.)</button>
+      <button class="preset-pill" onclick="loadPreset('kaluga', this)">3 · Ремонт кабинетов (534 поз.)</button>
+      <button class="preset-pill" onclick="loadPreset('set2', this)">4 · Помещение 163 (83 поз.)</button>
+      <span id="w-loading" class="loading-spinner" style="display:none;">
+        <i class="spinner"></i> Выполняется интеллектуальный аудит...
+      </span>
+    </div>
+
+    <!-- Guard Banner -->
+    <div id="w-guard-banner" class="guard-banner" style="display:none;"></div>
+  </section>
+
+  <!-- Status Cards (Filter Buttons) -->
+  <section class="cards" id="cards" aria-label="Итоги сверки"></section>
+
+  <!-- Segmented Progress Strip -->
+  <div class="strip" id="strip"></div>
+
+  <!-- Master-Detail Workspace -->
+  <main class="work" id="work"></main>
+
+  <p class="hint" id="foot" style="margin:4px 0 0; text-align:center;"></p>
+</div>
+
+<!-- ==================== МОДАЛЬНОЕ ОКНО: ИСТОРИЯ ПРОЕКТОВ (PostgreSQL) ==================== -->
+<div id="modal-history" class="modal-overlay" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-hdr">
+      <h3>📁 История проектов аудита (PostgreSQL 17)</h3>
+      <button class="btn ic" onclick="closeHistoryModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="history-loading" style="text-align:center; padding:20px; color:var(--mut);">Загрузка проектов из базы данных...</div>
+      <table class="history-table" id="history-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Наименование объекта</th>
+            <th>Дата сверки</th>
+            <th>Позиций</th>
+            <th>Совпало</th>
+            <th>Финансовый риск</th>
+            <th>Действие</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody"></tbody>
+      </table>
+    </div>
+    <div class="modal-ftr">
+      <span style="font-size:12.5px; color:var(--mut);">СУБД: PostgreSQL 17 · База: sverka_db · Таблица: projects</span>
+      <button class="btn" onclick="closeHistoryModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== МОДАЛЬНОЕ ОКНО: НАУЧНЫЙ БЕНЧМАРК (ВКР) ==================== -->
+<div id="modal-benchmark" class="modal-overlay" style="display:none;">
+  <div class="modal-card modal-lg">
+    <div class="modal-hdr">
+      <h3>📊 Эксперименты и сравнительный бенчмарк (ВКР)</h3>
+      <button class="btn ic" onclick="closeBenchmarkModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:12px; font-size:13.5px; color:var(--mut);">
+        Стенд для проверки гипотез на синтетических возмущениях (perturb.py) и расчёта метрик Precision, Recall, F1 в сравнении с базовой схемой (baseline_legacy.py).
+      </p>
+      <div style="display:flex; gap:12px; align-items:flex-end; margin-bottom:16px;">
         <div>
-          <a href="/api/download_csv" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
-            Скачать результат в CSV (Excel)
-          </a>
+          <label style="font-weight:600; font-size:12px;">Уровень шума (возмущений):</label>
+          <select id="b-noise" class="select-styled" style="width:160px;">
+            <option value="light">Слабый (5%)</option>
+            <option value="medium" selected>Средний (15%)</option>
+            <option value="heavy">Сильный (30%)</option>
+          </select>
         </div>
+        <button class="btn btn-primary" onclick="runBenchmark()">Запустить стресс-тест</button>
+        <span id="b-loading" style="display:none; color:var(--link); font-weight:600;">Выполняется бенчмарк...</span>
       </div>
-
-      <!-- Панель фильтров и сортировки -->
-      <div class="filter-bar" id="w-filter-bar" style="display: none;">
-        <div class="filter-group">
-          <div class="filter-item">
-            <label>Статус:</label>
-            <select id="flt-status" onchange="applyFiltersAndSort()">
-              <option value="all">Все статусы</option>
-              <option value="ambig" style="font-weight: bold; color: #b91c1c;">⚠️ Требуют решения сметчика (спорные)</option>
-              <option value="collision" style="color: #b45309; font-weight:600;">⚡ Коллизии алгоритма (конкуренция / объем / параметры)</option>
-              <option value="diff">Все расхождения</option>
-              <option value="match">Совпало (точно / единицы)</option>
-              <option value="missing">Без пары (нет в смете/ВОР)</option>
-              <option value="decided">Решено сметчиком (подтверждено/отклонено)</option>
-            </select>
-          </div>
-
-          <div class="filter-item">
-            <label>Сходство:</label>
-            <select id="flt-sim" onchange="applyFiltersAndSort()">
-              <option value="all">Любое</option>
-              <option value="high">Высокое (≥ 80%)</option>
-              <option value="mid">Среднее (40% – 79%)</option>
-              <option value="low">Низкое (< 40%)</option>
-            </select>
-          </div>
-
-          <div class="filter-item">
-            <input type="checkbox" id="flt-ai" onchange="applyFiltersAndSort()">
-            <label for="flt-ai" style="font-weight: normal; cursor: pointer;">Только выбор ИИ</label>
-          </div>
-
-          <button class="btn-reset" onclick="resetFilters()">Сбросить</button>
-        </div>
-
-        <div class="filter-group">
-          <div class="filter-item">
-            <label>Поиск:</label>
-            <input type="text" id="flt-search" placeholder="Наименование, шифр..." oninput="applyFiltersAndSort()" style="width: 220px;">
-          </div>
-          <span style="font-size: 11px; color: #666;">Показано: <b id="flt-count">0</b></span>
-        </div>
-      </div>
-
-      <!-- Таблица результатов -->
-      <div id="w-table-wrap">
-        <div id="w-empty" style="text-align:center; padding: 40px; color:#777; border: 1px solid #eee;">
-          Выберите файлы или нажмите тестовый комплект выше и нажмите «Сверить документы».
-        </div>
-        <table id="w-table" style="display: none;">
+      <div id="benchmark-results" style="display:none;">
+        <table class="history-table">
           <thead>
             <tr>
-              <th class="sortable" id="th-vor_num" onclick="handleSort('vor_num')" style="width: 55px;" title="Кликните для сортировки">ВОР №</th>
-              <th class="sortable" id="th-vor_name" onclick="handleSort('vor_name')" title="Кликните для сортировки">Позиция ВОР (проектная)</th>
-              <th class="sortable" id="th-lsr_num" onclick="handleSort('lsr_num')" style="width: 55px;" title="Кликните для сортировки">ЛСР №</th>
-              <th style="width: 110px;">Шифр расценки</th>
-              <th class="sortable" id="th-lsr_name" onclick="handleSort('lsr_name')" title="Кликните для сортировки">Расценка ЛСР (сметная)</th>
-              <th class="sortable" id="th-status" onclick="handleSort('status')" style="width: 170px;" title="Кликните для сортировки">Результат сверки</th>
-              <th class="sortable" id="th-sim" onclick="handleSort('sim')" style="width: 75px;" title="Кликните для сортировки">Сходство</th>
-              <th>Обоснование и расхождения</th>
-              <th style="width: 125px; text-align: center;">Решение сметчика (BPMN)</th>
+              <th>Метод сопоставления</th>
+              <th>Precision</th>
+              <th>Recall</th>
+              <th>F1-Score</th>
+              <th>Точность объёма</th>
             </tr>
           </thead>
-          <tbody id="w-tbody"></tbody>
+          <tbody id="benchmark-tbody"></tbody>
         </table>
       </div>
     </div>
-
-    <!-- ==================== ВКЛАДКА 2: ЭКСПЕРИМЕНТЫ (ВКР) ==================== -->
-    <div id="tab-exp" class="tab-content">
-      <div class="form-box">
-        <div class="exp-title">Параметры научного эксперимента и стресс-тестирования</div>
-        
-        <div class="row" style="margin-bottom: 12px;">
-          <div class="col">
-            <label>Тестовый комплект для исследования:</label>
-            <select id="exp-preset">
-              <option value="set1" selected>Комплект 1: «Дворец молодёжи» (86 поз., подтверждённые ссылки)</option>
-              <option value="set2">Комплект 2: «Ремонт помещений» (83 поз., одинаковые формулировки)</option>
-            </select>
-          </div>
-          <div class="col">
-            <button class="btn-primary" id="btn-exp" onclick="runBenchmark()">Запустить научный эксперимент</button>
-          </div>
-          <span id="exp-loading" style="display:none; color:#2563eb; font-weight:600; margin-left:8px;">Выполняется бенчмарк...</span>
-        </div>
-
-        <div style="border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 8px;">
-          <div class="checkbox-line">
-            <input type="checkbox" id="chk-shuffle">
-            <label for="chk-shuffle" style="font-weight: normal; cursor: pointer;">
-              <b>Перемешать порядок строк ВОР</b> (проверка того, что алгоритм не ориентируется на взаимное совпадение нумерации 1, 2, 3...)
-            </label>
-          </div>
-          <div class="checkbox-line">
-            <input type="checkbox" id="chk-stress" checked>
-            <label for="chk-stress" style="font-weight: normal; cursor: pointer;">
-              <b>Синтетический стресс-тест (Режим A, модуль <code>perturb.py</code>)</b>: внести синонимы («демонтаж»/«разборка»), масштабы единиц (100 м² <-> м²), ошибки объемов и удаленные позиции с расчетом эталона (Ground Truth).
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <!-- Результаты эксперимента -->
-      <div id="exp-results" style="display: none;">
-        <div class="exp-card">
-          <div class="exp-title">Сравнительная таблица методов (для дипломной работы)</div>
-          <table>
-            <thead>
-              <tr>
-                <th>Метод сопоставления</th>
-                <th style="width: 120px;">Precision (Точность)</th>
-                <th style="width: 120px;">Recall (Полнота)</th>
-                <th style="width: 120px;">F1-Score</th>
-                <th style="width: 160px;">Точность классов расхождений</th>
-                <th style="width: 140px;">Обнаружение «Нет в ВОР»</th>
-              </tr>
-            </thead>
-            <tbody id="exp-tbody"></tbody>
-          </table>
-        </div>
-
-        <div class="exp-card">
-          <div class="exp-title">Матрица классификации расхождений (Эталон -> Предсказание алгоритма SmartMatcher)</div>
-          <p style="color: #555; font-size: 12px; margin-bottom: 8px;">
-            Показывает, сколько раз алгоритм безошибочно определил истинный тип строительного расхождения:
-          </p>
-          <table style="width: auto; min-width: 600px;">
-            <thead>
-              <tr>
-                <th>Истинный класс в эталоне</th>
-                <th>Определено алгоритмом</th>
-                <th style="width: 80px; text-align: right;">Количество</th>
-              </tr>
-            </thead>
-            <tbody id="conf-tbody"></tbody>
-          </table>
-        </div>
-      </div>
+    <div class="modal-ftr">
+      <button class="btn" onclick="closeBenchmarkModal()">Закрыть</button>
     </div>
   </div>
+</div>
 
-  <script src="/app.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>

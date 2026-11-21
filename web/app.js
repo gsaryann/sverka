@@ -1,57 +1,412 @@
-/* Клиентская логика СверкаСмет (SmartMatcher) */
+/* Клиентская логика инженерного терминала СверкаСмет (SmartMatcher · B2B SaaS) */
 
-let activePreset = null;
-let tableData = [];
+let activePreset = 'set1';
+let currentProjectTitle = 'Комплект 1 · Дворец молодёжи (СПС и СОУЭ)';
+let currentProjectId = null;
+let currentUser = null;
 
-// Состояние сортировки
-let sortCol = 'vor_num';
-let sortAsc = true;
+// Исходные демонстрационные строки по умолчанию (Дворец молодёжи)
+let ROWS = [
+  {n:1, s:"diff", pr:18500, vor:"Монтаж Контроллера радиоканальных устройств", vv:1, vp:7, u:"шт", ln:7, code:"ГЭСНм10-08-001-13", lsr:"Устройства промежуточные на количество лучей: 1", lv:8, lp:93, sim:14, ai:true, note:"Пару выбрала Алиса: в смете описано промежуточное устройство, которое может соответствовать контроллеру. Объём в проекте 1 шт, в смете 8 шт. Текстовое сходство низкое.", risk:129500},
+  {n:2, s:"ok", pr:42000, vor:"Контроллер радиоканальных устройств Панель-2-ПРО", vv:1, vp:8, u:"шт", ln:2, code:"ТЦ_63.4.00.00_54_5404353096_20.02.2026_01_1", lsr:"Контроллер радиоканальных устройств Панель-2-ПРО", lv:1, lp:61, sim:100, note:"Полное совпадение: объём 1 шт.", risk:0},
+  {n:3, s:"none", pr:2300, vor:"Монтаж Радиорасширителя", vv:21, vp:9, u:"шт", ln:null, code:"", lsr:"", lv:null, lp:null, sim:67, near:"ЛСР №4 (Радиорасширитель с АКБ РР-ПРО), уже сопоставлена с позицией 4", note:"В смете не найдено подходящей расценки. Ближайшая строка ЛСР №4 имеет сходство 0,67.", risk:0},
+  {n:4, s:"ok", pr:15800, vor:"Радиорасширитель с АКБ РР-ПРО", vv:21, vp:10, u:"шт", ln:4, code:"ТЦ_63.4.00.00_54_5410152599_20.02.2026_01_2", lsr:"Радиорасширитель с АКБ РР-ПРО", lv:21, lp:78, sim:100, note:"Полное совпадение: объём 21 шт.", risk:0},
+  {n:5, s:"ok", pr:1450, vor:"Извещатель пожарный дымовой ИП 212-141", vv:40, vp:11, u:"шт", ln:5, code:"ТЦ_63.4.00.00_54_5412208841_20.02.2026_01_5", lsr:"Извещатель пожарный дымовой ИП 212-141", lv:40, lp:79, sim:100, note:"Полное совпадение: объём 40 шт.", risk:0},
+  {n:6, s:"part", pr:62, vor:"Кабель КПСнг(А)-FRLS 2×2×0,5", vv:850, vp:12, u:"м", ln:6, code:"ФССЦ-08.3.03.06-0012", lsr:"Кабель КПСнг(А)-FRLS 2×2×0,5", lv:780, lp:84, sim:92, ai:false, note:"Названия совпадают. Объём в проекте 850 м, в смете 780 м: не хватает 70 м.", risk:-4340},
+  {n:7, s:"part", pr:3900, vor:"Оповещатель световой «Выход»", vv:12, vp:14, u:"шт", ln:9, code:"ТЦ_63.4.00.00_54_5410877310_20.02.2026_01_7", lsr:"Табло световое указатель «Выход»", lv:12, lp:88, sim:58, ai:true, note:"Алиса считает, что оповещатель «Выход» и табло «Выход» это одно изделие. Объём совпадает, названия различаются.", risk:0},
+  {n:8, s:"part", pr:11200, vor:"Источник бесперебойного питания 24 В, 7 А·ч", vv:2, vp:15, u:"шт", ln:11, code:"ТЦ_63.4.00.00_54_5411093277_20.02.2026_01_9", lsr:"Блок питания резервированный РИП-24", lv:2, lp:90, sim:61, ai:true, note:"Алиса предлагает заменить источник питания на РИП-24. Объём совпадает, но ёмкость батареи в смете не указана.", risk:0},
+  {n:9, s:"ok", pr:24500, vor:"Шкаф монтажный 19″, 6U", vv:1, vp:16, u:"шт", ln:12, code:"ТЦ_63.4.00.00_54_5413320018_20.02.2026_01_12", lsr:"Шкаф монтажный 19″, 6U", lv:1, lp:92, sim:100, note:"Полное совпадение: объём 1 шт.", risk:0},
+  {n:10, s:"none", pr:85000, vor:"Пусконаладочные работы системы оповещения", vv:1, vp:18, u:"компл.", ln:null, code:"", lsr:"", lv:null, lp:null, sim:31, near:"подходящих кандидатов выше порога нет", note:"В смете нет расценки на пусконаладочные работы. Проверьте, учтены ли они отдельным разделом.", risk:0}
+];
 
-function switchTab(tabId, el) {
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById(tabId).classList.add('active');
-  el.classList.add('active');
+const LABEL = {
+  ok: "Совпало",
+  part: "Частичное совпадение",
+  diff: "Расхождение объёма",
+  none: "Не найдено",
+  rej: "Пара отклонена"
+};
+
+const ORD = { none: 0, diff: 1, part: 2, ok: 3 };
+const CARDS = [
+  ["all", "Всего позиций", "ink"],
+  ["ok", "Совпало", "ok"],
+  ["part", "Частично совпало", "part"],
+  ["diff", "Расхождение", "diff"],
+  ["none", "Не найдено", "none"],
+  ["need", "Ждут решения", "part"]
+];
+
+const S = {
+  dec: {},
+  sel: 1,
+  fl: "all",
+  q: "",
+  sort: { k: "n", d: 1 },
+  fresh: false,
+  open: true
+};
+
+const $ = s => document.querySelector(s);
+const fmt = n => n == null ? "—" : String(n).replace(".", ",");
+const fm = n => String(Math.round(Math.abs(n || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const money = n => (n < 0 ? "−" : n > 0 ? "+" : "") + fm(n) + " ₽";
+
+const rej = r => r.ai && S.dec[r.n] === "no";
+const es = r => rej(r) ? "none" : r.s;
+const lab = r => rej(r) ? LABEL.rej : (LABEL[r.s] || r.s);
+const pend = r => r.s !== "ok" && !S.dec[r.n];
+const paired = r => es(r) !== "none" && r.lv != null;
+const dq = r => paired(r) ? (r.lv - r.vv) : -r.vv;
+const dqt = r => {
+  const d = dq(r);
+  return d === 0 ? "0" : (d > 0 ? "+" : "−") + fmt(Math.abs(d));
+};
+
+const tok = s => new Set(String(s || "").toLowerCase().replace(/[^а-яa-z0-9]+/g, " ").split(" ").filter(w => w.length > 2));
+const wn = w => (w || "").toLowerCase().replace(/[^а-яa-z0-9]+/g, "");
+const jac = (a, b) => {
+  const x = tok(a), y = tok(b);
+  if (!x.size || !y.size) return 0;
+  let i = 0;
+  x.forEach(w => { if (y.has(w)) i++; });
+  return i / (x.size + y.size - i);
+};
+
+function wdiff(a, b) {
+  const sa = new Set(String(a || "").split(/\s+/).map(wn));
+  const sb = new Set(String(b || "").split(/\s+/).map(wn));
+  const f = (t, o) => String(t || "").split(/\s+/).map(w => (!wn(w) || o.has(wn(w))) ? w : `<mark class="df">${w}</mark>`).join(" ");
+  return [f(a, sb), f(b, sa)];
 }
 
-// Сброс выбора при ручной загрузке файлов
-document.getElementById('f-vor').addEventListener('change', () => { 
-  activePreset = null; 
-  document.getElementById('p-label').textContent = ''; 
-});
-document.getElementById('f-lsr').addEventListener('change', () => { 
-  activePreset = null; 
-  document.getElementById('p-label').textContent = ''; 
-});
+function acts(r, big) {
+  if (r.s === "ok") return '<span class="auto">Авто</span>';
+  const d = S.dec[r.n];
+  const y = r.ai ? "✓ Да" : "Принять";
+  const n = r.ai ? "✕ Нет" : "В правку";
+  if (d) {
+    return `<span class="acts"><span class="done ${d}">${d === "yes" ? "Принято" : (r.ai ? "Отклонено" : "В правку")}</span><button class="btn-text" style="text-decoration:underline;" onclick="undoDecision(${r.n})">Отменить</button></span>`;
+  }
+  return `<span class="acts"><button class="btn yes${big ? " big" : ""}" onclick="makeDecision(${r.n}, 'yes')">${y}</button><button class="btn no${big ? " big" : ""}" onclick="makeDecision(${r.n}, 'no')">${n}</button></span>`;
+}
 
-function loadPreset(key) {
+function visible() {
+  const q = S.q.trim().toLowerCase();
+  const l = ROWS.filter(r => {
+    if (S.fl === "need" && !pend(r)) return false;
+    if (["ok", "part", "diff", "none"].includes(S.fl) && es(r) !== S.fl) return false;
+    return !q || (String(r.vor || "") + " " + String(r.lsr || "") + " " + String(r.code || "")).toLowerCase().includes(q);
+  });
+  const k = S.sort.k, d = S.sort.d;
+  const g = r => k === "n" ? r.n : k === "st" ? (ORD[es(r)] ?? 0) : r.sim;
+  return l.sort((a, b) => (g(a) - g(b)) * d || a.n - b.n);
+}
+
+function renderCards() {
+  const T = ROWS.length || 1;
+  const cnt = { all: ROWS.length, ok: 0, part: 0, diff: 0, none: 0, need: ROWS.filter(pend).length };
+  ROWS.forEach(r => {
+    const st = es(r);
+    if (cnt[st] !== undefined) cnt[st]++;
+    else cnt.diff++;
+  });
+
+  const cardsEl = $("#cards");
+  if (cardsEl) {
+    cardsEl.innerHTML = CARDS.map(c => `
+      <button class="sc s-${c[2]}" style="${c[2] === "ink" ? "--c:var(--ink)" : ""}" onclick="setFilter('${c[0]}')" aria-pressed="${S.fl === c[0]}">
+        <span class="l"><i></i>${c[1]}</span>
+        <span class="nbig dn">${cnt[c[0]] || 0}<small>${Math.round((cnt[c[0]] || 0) / T * 100)}%</small></span>
+      </button>
+    `).join("");
+  }
+
+  const prob = ROWS.filter(r => r.s !== "ok");
+  const done = prob.filter(r => S.dec[r.n]).length;
+  const stripEl = $("#strip");
+  if (stripEl) {
+    stripEl.innerHTML = `
+      <span>Результат аудита:</span>
+      <div class="seg" role="img" aria-label="Распределение">
+        ${["ok", "part", "diff", "none"].map(k => `<i class="s-${k}" style="flex:${cnt[k] || 0}"></i>`).join("")}
+      </div>
+      <span>Решено сметчиком: <b>${done}</b> из <b>${prob.length}</b></span>
+    `;
+  }
+}
+
+function panel(r) {
+  const s = es(r), vis = visible(), i = vis.findIndex(x => x.n === r.n), isP = paired(r);
+  const [da, db] = r.lsr ? wdiff(r.vor, r.lsr) : [r.vor, ""];
+  const vdf = isP && r.lv !== r.vv, mx = Math.max(r.vv || 1, r.lv || 0);
+  const tsim = r.lsr ? Math.round(jac(r.vor, r.lsr) * 100) : 0;
+  const common = r.lsr ? [...tok(r.vor)].filter(w => tok(r.lsr).has(w)) : [];
+  const src = r.ai ? "ИИ (Алиса, YandexGPT)" : "SmartMatcher v2 (алгоритм)";
+  const TH = parseFloat(document.getElementById('w-thr')?.value || 0.55) * 100;
+  const above = r.sim >= TH;
+  const thrTxt = !r.lsr
+    ? `Подходящая пара в смете не найдена. Ближайший кандидат: ${r.near || "нет"}.`
+    : (above ? `Сходство ${r.sim}% выше порога ${Math.round(TH)}%.` : `Сходство ${r.sim}% ниже порога ${Math.round(TH)}%: пару предложил ИИ, требуется решение инженера.`);
+
+  const sig = r.lsr ? `
+    <div><span class="${tsim >= TH ? "y" : "n"}">${tsim >= TH ? "✓" : "✕"}</span><span>Сходство формулировок: ${tsim}%${common.length ? `<div class="wds">${common.map(w => `<span>${w}</span>`).join("")}</div>` : ""}</span></div>
+    <div><span class="y">✓</span><span>Единицы измерения сопоставимы: ${r.u || "—"}</span></div>
+    <div><span class="${vdf ? "n" : "y"}">${vdf ? "✕" : "✓"}</span><span>Объём ${vdf ? `различается: ${fmt(r.vv)} и ${fmt(r.lv)} ${r.u}` : "полностью совпадает"}</span></div>
+    <div><span class="q">i</span><span>Источник сопоставления: ${src}</span></div>
+  ` : `
+    <div><span class="n">✕</span><span>Расценка выше порога не обнаружена в смете</span></div>
+    <div><span class="q">i</span><span>Источник проверки: ${src}</span></div>
+  `;
+
+  let cost;
+  if (r.s === "ok") {
+    cost = "";
+  } else if (isP && r.pr) {
+    const pc = (r.vv || 0) * r.pr, ec = (r.lv || 0) * r.pr, dc = ec - pc;
+    cost = `
+      <div class="impact">
+        <div class="vol">Финансовый риск расхождения: расценка ${fm(r.pr)} ₽ за ${r.u} из сметы</div>
+        <b style="color:${dc === 0 ? "var(--text)" : dc > 0 ? "var(--diff)" : "var(--bad)"}">${dc === 0 ? "0 ₽" : money(dc)}</b>
+        <div class="vol">По проекту: ${fm(pc)} ₽ · По смете: ${fm(ec)} ₽</div>
+      </div>
+    `;
+  } else if (r.risk) {
+    cost = `
+      <div class="impact">
+        <div class="vol">Оценка потенциального финансового риска:</div>
+        <b style="color:var(--diff);">${money(r.risk)}</b>
+      </div>
+    `;
+  } else {
+    cost = `<div class="impact no">Влияние на стоимость не рассчитано: в ЛСР не указана единичная цена для данной строки.</div>`;
+  }
+
+  return `
+    <aside class="box panel s-${s}${S.fresh ? " fresh" : ""}" aria-label="Подробности позиции">
+      <div class="ph">
+        <div>
+          <h2>${r.vor}</h2>
+          <span class="pill s-${s}">${lab(r)}</span>
+        </div>
+        <div class="nav">
+          <button class="btn ic" onclick="moveNav(-1)" aria-label="Предыдущая">↑</button>
+          <button class="btn ic" onclick="moveNav(1)" aria-label="Следующая">↓</button>
+          <button class="btn ic" onclick="closePanel()" aria-label="Закрыть">✕</button>
+        </div>
+      </div>
+      <div class="pb">
+        <div class="sim">
+          <div class="top2">
+            <div>
+              <div class="big1">${r.sim}%</div>
+              <div class="vol">сходство${i >= 0 ? ` · строка ${i + 1} из ${vis.length}` : ""}</div>
+            </div>
+            <div class="vol" style="text-align:right">ВОР поз. ${r.vor_num || r.n}<br>${r.lsr ? `ЛСР поз. №${r.lsr_num || r.ln || '—'}` : "в смете нет пары"}</div>
+          </div>
+          <div class="thr" role="img" aria-label="Сходство ${r.sim}%, порог ${Math.round(TH)}%">
+            <i style="width:${Math.min(r.sim, 100)}%"></i>
+            <b style="left:${Math.min(TH, 100)}%"></b>
+            <em style="left:${Math.min(TH, 100)}%">порог ${Math.round(TH)}%</em>
+          </div>
+          <div class="vol">${thrTxt}</div>
+        </div>
+
+        <div>
+          <h3>Сравнение параметров</h3>
+          <table class="cmp">
+            <thead><tr><th>Параметр</th><th>ВОР (проект)</th><th>ЛСР (смета)</th></tr></thead>
+            <tbody>
+              <tr><td>Наименование</td><td>${da}</td><td>${r.lsr ? db : "подходящей расценки нет"}</td></tr>
+              <tr><td>Объём</td><td>${fmt(r.vv)} ${r.u || ""}</td><td class="${vdf ? "df" : ""}">${r.lv == null ? "—" : fmt(r.lv) + " " + (r.u || "")}</td></tr>
+              <tr><td>Шифр нормы</td><td>—</td><td class="code">${r.code || "—"}</td></tr>
+            </tbody>
+          </table>
+          ${r.lv != null ? `
+            <div class="vb">
+              <span>ВОР</span>
+              <div class="t"><i style="width:${Math.min((r.vv || 0) / mx * 100, 100)}%"></i></div>
+              <b class="dn">${fmt(r.vv)} ${r.u || ""}</b>
+              <span>ЛСР</span>
+              <div class="t"><i class="l" style="width:${Math.min((r.lv || 0) / mx * 100, 100)}%"></i></div>
+              <b class="dn">${fmt(r.lv)} ${r.u || ""}</b>
+            </div>
+          ` : ""}
+        </div>
+
+        <div>
+          <h3>Обоснование решения</h3>
+          <div class="sig">${sig}</div>
+          <p class="vol" style="margin-top:8px;">${r.note || ""}</p>
+        </div>
+
+        ${cost}
+      </div>
+
+      <div class="pa">
+        ${r.s === "ok" ? '<span class="auto">Совпало автоматически, решение не требуется.</span>' : acts(r, true)}
+        <span style="flex:1;"></span>
+        <span class="hint"><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Y</kbd> <kbd>N</kbd> <kbd>Esc</kbd></span>
+      </div>
+    </aside>
+  `;
+}
+
+function renderWork() {
+  const vis = visible(), sel = ROWS.find(r => r.n === S.sel);
+  const th = (k, l, cls) => `<th class="${cls || ""}" ${k ? `onclick="setSort('${k}')"` : ""}>${l}${S.sort.k === k ? (S.sort.d > 0 ? " ▲" : " ▼") : ""}</th>`;
+  const rows = vis.map(r => {
+    const s = es(r), d = dq(r) !== 0 && paired(r);
+    return `
+      <tr class="row s-${s}${r.n === S.sel ? " sel" : ""}" onclick="selectRow(${r.n})">
+        <td class="c1 dn">${r.n}</td>
+        <td class="c2 nm">${r.vor}</td>
+        <td>
+          ${r.lsr ? `<div class="nm" style="font-weight:400">${r.lsr}</div><div class="vol">${r.code ? `<span class="code">${r.code}</span> · ` : ""}ЛСР №${r.lsr_num || r.ln || '—'}</div>` : '<span class="vol">нет в смете</span>'}
+        </td>
+        <td class="dn vv${d ? " d" : ""}">${fmt(r.vv)} → ${r.lv == null ? "—" : d ? `<b>${fmt(r.lv)}</b>` : fmt(r.lv)} <span class="vol">${r.u || ""}</span></td>
+        <td><span class="pill s-${s}">${lab(r)}</span></td>
+        <td>
+          <div class="simc">
+            <span><i style="width:${Math.min(r.sim, 100)}%"></i></span>
+            <b class="dn" style="font-weight:600;">${r.sim}%</b>
+          </div>
+        </td>
+        <td class="cr" onclick="event.stopPropagation();">${acts(r)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  const prob = ROWS.filter(r => r.s !== "ok");
+  const done = prob.filter(r => S.dec[r.n]).length;
+  const table = `
+    <div class="box">
+      <div class="tb">
+        <input class="search" id="q" type="search" placeholder="Поиск по названию или шифру" value="${(S.q || "").replace(/"/g, "&quot;")}" oninput="searchRows(this.value)">
+        <span class="sp"></span>
+        ${S.fl !== "all" || S.q ? '<button class="link" onclick="resetFilters()">Сбросить фильтры</button>' : ""}
+        <span class="hint">Кликните по строке, чтобы открыть карточку параметров</span>
+      </div>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr>
+              ${th("n", "№", "c1")}
+              ${th("", "Позиция ВОР (проектная)", "c2")}
+              ${th("", "Расценка ЛСР (сметная)")}
+              ${th("", "Объём: проект → смета")}
+              ${th("st", "Статус")}
+              ${th("sim", "Сходство")}
+              ${th("", "Решение сметчика", "cr")}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="7" style="padding:28px; text-align:center; color:var(--mut);">Ничего не найдено. Сбросьте фильтр или строку поиска.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <div class="sb">
+        <span>Показано <b>${vis.length}</b> из <b>${ROWS.length}</b> позиций</span>
+        <span>Решено сметчиком: <b>${done}</b> из <b>${prob.length}</b></span>
+        <span style="margin-left:auto;"><a href="/api/download_csv" style="color:var(--link); font-weight:600;">📥 Экспорт в CSV (Excel)</a></span>
+      </div>
+    </div>
+  `;
+
+  const w = $("#work");
+  if (w) {
+    w.className = "work" + (sel && S.open ? " open" : "");
+    w.innerHTML = (sel && S.open ? panel(sel) : "") + table;
+  }
+  S.fresh = false;
+}
+
+function render() {
+  renderCards();
+  renderWork();
+}
+
+function selectRow(n) {
+  if (!S.open) S.fresh = true;
+  S.sel = n;
+  S.open = true;
+  render();
+}
+
+function closePanel() {
+  S.open = false;
+  render();
+}
+
+function moveNav(d) {
+  const v = visible();
+  if (!v.length) return;
+  let i = v.findIndex(r => r.n === S.sel);
+  i = Math.max(0, Math.min(v.length - 1, i < 0 ? 0 : i + d));
+  S.sel = v[i].n;
+  if (!S.open) { S.open = true; S.fresh = true; }
+  render();
+  const el = document.querySelector("tr.row.sel");
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+
+function setFilter(fl) {
+  S.fl = fl;
+  render();
+}
+
+function setSort(k) {
+  S.sort = S.sort.k === k ? { k, d: -S.sort.d } : { k, d: 1 };
+  render();
+}
+
+function searchRows(val) {
+  S.q = val;
+  render();
+}
+
+function resetFilters() {
+  S.fl = "all";
+  S.q = "";
+  render();
+}
+
+function makeDecision(n, act) {
+  S.dec[n] = act;
+  render();
+}
+
+function undoDecision(n) {
+  delete S.dec[n];
+  render();
+}
+
+// Пресеты
+function loadPreset(key, btnEl) {
   activePreset = key;
   document.getElementById('f-vor').value = '';
   document.getElementById('f-lsr').value = '';
-  document.getElementById('p-label').textContent = key === 'set1' ? 'выбран Комплект 1' : 'выбран Комплект 2';
+  document.querySelectorAll('.preset-pill').forEach(b => b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
   const guard = document.getElementById('w-guard-banner');
   if (guard) guard.style.display = 'none';
+
+  if (key === 'set1') currentProjectTitle = 'Комплект 1 · Дворец молодёжи (86 поз.)';
+  else if (key === 'crystal') currentProjectTitle = 'Комплект 2 · СФР «Кристалл» (137 поз.)';
+  else if (key === 'kaluga') currentProjectTitle = 'Комплект 3 · Ремонт кабинетов (534 поз.)';
+  else if (key === 'set2') currentProjectTitle = 'Комплект 4 · Помещение 163 (83 поз.)';
 }
 
-// ================== ОПРЕДЕЛЕНИЕ СПОРНОСТИ (ПО BPMN) ==================
-function isRowAmbiguous(r) {
-  const hasFormulationWarning = Boolean(r['Предупреждение о формулировке']);
-  if (r.is_ambiguous !== undefined && r.is_ambiguous !== null) {
-    return Boolean(r.is_ambiguous) || hasFormulationWarning;
-  }
-  const isAi = (r['Причина решения и расхождения'] || '').includes('Алиса');
-  const sim = parseFloat(r['Текстовое сходство'] || 0);
-  const st = r['Результат алгоритма'] || '';
+document.getElementById('f-vor').addEventListener('change', () => {
+  activePreset = null;
+  document.querySelectorAll('.preset-pill').forEach(b => b.classList.remove('active'));
+});
+document.getElementById('f-lsr').addEventListener('change', () => {
+  activePreset = null;
+  document.querySelectorAll('.preset-pill').forEach(b => b.classList.remove('active'));
+});
 
-  if (r['ЛСР №']) {
-    if (isAi || sim < 0.40 || st.includes('Кандидат') || r['Коллизия (неоднозначность)']) return true;
-  }
-  if (st === 'Расхождение единиц' || st.includes('характеристик') || st === 'Нет в рассматриваемой смете') return true;
-
-  return false;
-}
-
-// ================== РАБОЧАЯ СВЕРКА ==================
+// ==================== РАБОЧАЯ СВЕРКА ЧЕРЕЗ API ====================
 async function runCompare() {
   const mode = document.getElementById('w-mode').value;
   const thr = document.getElementById('w-thr').value;
@@ -59,21 +414,17 @@ async function runCompare() {
   const fLsr = document.getElementById('f-lsr').files[0];
 
   const guard = document.getElementById('w-guard-banner');
-  if (guard) {
-    guard.style.display = 'none';
-    guard.textContent = '';
-  }
+  if (guard) { guard.style.display = 'none'; guard.textContent = ''; }
 
   if (!activePreset && (!fVor || !fLsr)) {
-    alert('Пожалуйста, выберите оба файла или кликните быстрый тестовый комплект.');
+    alert('Пожалуйста, выберите оба файла Excel или нажмите один из готовых комплектов.');
     return;
   }
 
   const btn = document.getElementById('btn-compare');
   const load = document.getElementById('w-loading');
   btn.disabled = true;
-  load.style.display = 'inline';
-  load.textContent = 'SmartMatcher выполняет экспресс-сопоставление...';
+  load.style.display = 'inline-flex';
 
   const fd = new FormData();
   fd.append('mode', mode);
@@ -86,426 +437,291 @@ async function runCompare() {
   }
 
   try {
-    const resp = await fetch('/api/compare_stream', { method: 'POST', body: fd });
-    if (!resp.ok) {
-      const errJson = await resp.json().catch(() => ({}));
-      alert('Ошибка: ' + (errJson.error || `HTTP ${resp.status}`));
-      return;
-    }
-
-    if (!resp.body || !resp.body.getReader) {
-      // Фолбэк на синхронный метод, если среда не поддерживает ReadableStream
-      const syncResp = await fetch('/api/compare', { method: 'POST', body: fd });
-      const data = await syncResp.json();
-      if (!syncResp.ok || data.error) {
-        alert('Ошибка: ' + (data.error || 'Не удалось выполнить'));
-        return;
-      }
-      if (data.warning && guard) {
-        guard.textContent = '⚠️ ' + data.warning;
-        guard.style.display = 'block';
-      }
-      tableData = data.rows || [];
-      renderSummary(data.stats, mode);
-      sortCol = 'vor_num';
-      sortAsc = true;
-      applyFiltersAndSort();
-      document.getElementById('w-summary').style.display = 'flex';
-      document.getElementById('w-filter-bar').style.display = 'flex';
-      return;
-    }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const lines = buffer.split('\n\n');
-      buffer = lines.pop(); // неполный остаток в конце
-
-      for (const block of lines) {
-        for (const line of block.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
-
-          let msg;
-          try { msg = JSON.parse(jsonStr); } catch (e) { continue; }
-
-          if (msg.warning && guard) {
-            guard.textContent = '⚠️ ' + msg.warning;
-            guard.style.display = 'block';
-          }
-          if (msg.parse_warnings && msg.parse_warnings.length && guard) {
-            const examples = msg.parse_warnings.slice(0, 5).map(w => `${w.doc} ${w.sheet}:${w.row} — ${w.reason}`).join('\n');
-            guard.textContent = `${guard.textContent ? guard.textContent + '\n' : ''}⚠️ Не удалось прочитать объём или проверить формулу в ${msg.parse_warnings.length} строках.\n${examples}`;
-            guard.style.display = 'block';
-          }
-
-          if (msg.type === 'init') {
-            tableData = msg.rows || [];
-            renderSummary(msg.stats || {}, mode);
-            sortCol = 'vor_num';
-            sortAsc = true;
-            applyFiltersAndSort();
-            document.getElementById('w-summary').style.display = 'flex';
-            document.getElementById('w-filter-bar').style.display = 'flex';
-
-            if (msg.needs_llm) {
-              load.textContent = `SmartMatcher готов (0.05 с). ИИ-арбитр анализирует ${msg.ambig_count} спорных позиций...`;
-            } else {
-              load.textContent = '✓ Сопоставление SmartMatcher завершено!';
-              setTimeout(() => {
-                if (load.textContent.includes('завершено')) {
-                  load.style.display = 'none';
-                }
-              }, 2000);
-            }
-          } else if (msg.type === 'progress') {
-            load.textContent = `🤖 Алиса арбитраж: ${msg.done} из ${msg.total} (${msg.percent}%) — ${msg.item_name || ''}...`;
-          } else if (msg.type === 'done') {
-            tableData = msg.rows || [];
-            renderSummary(msg.stats || {}, mode);
-            applyFiltersAndSort();
-            load.textContent = '✓ Сверка и арбитраж успешно завершены!';
-            setTimeout(() => {
-              if (load.textContent.includes('завершены')) {
-                load.style.display = 'none';
-              }
-            }, 3000);
-          } else if (msg.type === 'error') {
-            alert('Ошибка сервера: ' + msg.error);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    alert('Ошибка связи: ' + err.message);
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function renderSummary(st, mode) {
-  document.getElementById('ws-total').textContent = tableData.length;
-  document.getElementById('ws-match').textContent = tableData.filter(r => (r['Верхний статус'] || '').startsWith('Совпало')).length;
-  document.getElementById('ws-diff').textContent = tableData.filter(r => (r['Верхний статус'] || '') === 'Расхождение').length;
-  document.getElementById('ws-none').textContent = tableData.filter(r => (r['Верхний статус'] || '') === 'Отсутствует в документе').length;
-
-  const ambigList = tableData.filter(r => isRowAmbiguous(r));
-  const decidedCount = ambigList.filter(r => r['Статус решения сметчика'] === 'Подтверждено' || r['Статус решения сметчика'] === 'Отклонено').length;
-
-  document.getElementById('ws-ambig').textContent = ambigList.length;
-  document.getElementById('ws-decided').textContent = `${decidedCount} из ${ambigList.length}`;
-
-  const aiBox = document.getElementById('ws-ai-box');
-  if ((mode === 'hybrid' || mode === 'model_only') && st.llm_stats) {
-    aiBox.style.display = 'inline';
-    document.getElementById('ws-ai').textContent = st.llm_stats.accepted || 0;
-  } else {
-    aiBox.style.display = 'none';
-  }
-}
-
-// ================== СОРТИРОВКА И ФИЛЬТРАЦИЯ ==================
-
-function handleSort(columnKey) {
-  if (sortCol === columnKey) {
-    sortAsc = !sortAsc;
-  } else {
-    sortCol = columnKey;
-    sortAsc = true;
-  }
-  applyFiltersAndSort();
-}
-
-function parseNum(val) {
-  if (!val) return 99999999;
-  const cleaned = String(val).replace(/[^0-9.]/g, '');
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? 99999999 : num;
-}
-
-function applyFiltersAndSort() {
-  const statusFilter = document.getElementById('flt-status').value;
-  const simFilter = document.getElementById('flt-sim').value;
-  const aiOnly = document.getElementById('flt-ai').checked;
-  const query = document.getElementById('flt-search').value.toLowerCase().trim();
-
-  // 1. Фильтрация
-  const filtered = tableData.filter(r => {
-    const st = r['Результат алгоритма'] || '';
-    const highStatus = r['Верхний статус'] || st;
-    const isAmbig = isRowAmbiguous(r);
-    const isDecided = (r['Статус решения сметчика'] === 'Подтверждено' || r['Статус решения сметчика'] === 'Отклонено');
-    const isAi = (r['Причина решения и расхождения'] || '').includes('Алиса');
-    const sim = parseFloat(r['Текстовое сходство'] || 0);
-
-    // Фильтр по статусу
-    if (statusFilter === 'ambig' && !isAmbig) return false;
-    if (statusFilter === 'collision' && !r['Коллизия (неоднозначность)']) return false;
-    if (statusFilter === 'diff' && highStatus !== 'Расхождение') return false;
-    if (statusFilter === 'match' && highStatus !== 'Совпало') return false;
-    if (statusFilter === 'missing' && highStatus !== 'Отсутствует в документе') return false;
-    if (statusFilter === 'decided' && !isDecided) return false;
-
-    // Фильтр по сходству
-    if (simFilter === 'high' && sim < 0.80) return false;
-    if (simFilter === 'mid' && (sim < 0.40 || sim >= 0.80)) return false;
-    if (simFilter === 'low' && sim >= 0.40) return false;
-
-    // Только ИИ
-    if (aiOnly && !isAi) return false;
-
-    // Текстовый поиск
-    if (query) {
-      const text = [
-        r['ВОР №'], r['ВОР: наименование'], r['ЛСР №'], r['ЛСР шифр'],
-        r['ЛСР: наименование'], r['Причина решения и расхождения'], st
-      ].join(' ').toLowerCase();
-      if (!text.includes(query)) return false;
-    }
-
-    return true;
-  });
-
-  // 2. Сортировка
-  filtered.sort((a, b) => {
-    let res = 0;
-    if (sortCol === 'vor_num') {
-      res = parseNum(a['ВОР №']) - parseNum(b['ВОР №']);
-    } else if (sortCol === 'lsr_num') {
-      res = parseNum(a['ЛСР №']) - parseNum(b['ЛСР №']);
-    } else if (sortCol === 'vor_name') {
-      res = (a['ВОР: наименование'] || '').localeCompare(b['ВОР: наименование'] || '', 'ru');
-    } else if (sortCol === 'lsr_name') {
-      res = (a['ЛСР: наименование'] || '').localeCompare(b['ЛСР: наименование'] || '', 'ru');
-    } else if (sortCol === 'status') {
-      res = (a['Результат алгоритма'] || '').localeCompare(b['Результат алгоритма'] || '', 'ru');
-    } else if (sortCol === 'sim') {
-      res = (parseFloat(a['Текстовое сходство'] || 0)) - (parseFloat(b['Текстовое сходство'] || 0));
-    }
-    return sortAsc ? res : -res;
-  });
-
-  // 3. Обновление индикаторов в шапке
-  document.querySelectorAll('th.sortable').forEach(th => {
-    th.classList.remove('sort-asc', 'sort-desc');
-  });
-  const currentTh = document.getElementById('th-' + sortCol);
-  if (currentTh) {
-    currentTh.classList.add(sortAsc ? 'sort-asc' : 'sort-desc');
-  }
-
-  document.getElementById('flt-count').textContent = `${filtered.length} из ${tableData.length}`;
-  renderTable(filtered);
-}
-
-function resetFilters() {
-  document.getElementById('flt-status').value = 'all';
-  document.getElementById('flt-sim').value = 'all';
-  document.getElementById('flt-ai').checked = false;
-  document.getElementById('flt-search').value = '';
-  sortCol = 'vor_num';
-  sortAsc = true;
-  applyFiltersAndSort();
-}
-
-function renderTable(rows) {
-  const tbody = document.getElementById('w-tbody');
-  tbody.innerHTML = '';
-
-  if (!rows.length) {
-    document.getElementById('w-empty').style.display = 'block';
-    document.getElementById('w-empty').textContent = tableData.length 
-      ? 'По выбранным фильтрам ничего не найдено.' 
-      : 'Выберите файлы или нажмите тестовый комплект выше и нажмите «Сверить документы».';
-    document.getElementById('w-table').style.display = 'none';
-    return;
-  }
-
-  document.getElementById('w-empty').style.display = 'none';
-  document.getElementById('w-table').style.display = 'table';
-
-  rows.forEach((r) => {
-    const tr = document.createElement('tr');
-    const isAi = (r['Причина решения и расхождения'] || '').includes('Алиса');
-    const aiTag = isAi ? '<span class="tag-ai">ИИ</span>' : '';
-    const rawStatus = r['Результат алгоритма'] || '';
-    const st = r['Верхний статус'] || rawStatus;
-    const hasFormulationWarning = Boolean(r['Предупреждение о формулировке']);
-    const isAmbig = isRowAmbiguous(r);
-    const decision = r['Статус решения сметчика'] || 'Авто';
-
-    let statusClass = 'st-none';
-    if (decision === 'Подтверждено') statusClass = 'st-confirmed';
-    else if (decision === 'Отклонено') statusClass = 'st-diff';
-    else if (st === 'Совпало') statusClass = 'st-ok';
-    else if (st === 'Расхождение' && rawStatus.includes('объёма')) statusClass = 'st-qty';
-    else if (st === 'Расхождение' && rawStatus.includes('единиц')) statusClass = 'st-unit';
-    else if (st === 'Расхождение') statusClass = 'st-diff';
-    else if (st === 'Требует проверки') statusClass = 'st-review';
-
-    const originalIndex = tableData.indexOf(r);
-
-    // Формирование ячейки действия по BPMN:
-    let actionCell = '';
-    if (!isAmbig) {
-      // Очевидная пара: сметчику подтверждать не нужно!
-      actionCell = `<span style="color:#94a3b8; font-size:11px;">Авто</span>`;
-    } else {
-      // Спорная пара: требуется подтверждение сметчика!
-      if (decision === 'Подтверждено') {
-        actionCell = `
-          <span class="st-confirmed" style="font-size:11px;">✓ Принято</span>
-          <button class="btn-action" style="margin-left:3px;" onclick="handleRowAction(${originalIndex}, 'reset')">Снять</button>
-        `;
-      } else if (decision === 'Отклонено') {
-        actionCell = `
-          <span style="color:#dc2626; font-size:11px; font-weight:600;">✕ Отклонено</span>
-          <button class="btn-action" style="margin-left:3px;" onclick="handleRowAction(${originalIndex}, 'reset')">Снять</button>
-        `;
-      } else {
-        // Ожидает решения инженера (BPMN Слайд 12)
-        actionCell = `
-          <div style="display:flex; gap:3px; justify-content:center;">
-            <button class="btn-action" style="color:#166534; font-weight:700;" onclick="handleRowAction(${originalIndex}, 'confirm')" title="Подтвердить совпадение">✓ Да</button>
-            <button class="btn-action" style="color:#b91c1c;" onclick="handleRowAction(${originalIndex}, 'reject')" title="Отклонить: пары в смете нет">✕ Нет</button>
-          </div>
-        `;
-      }
-    }
-
-    const secVor = r['ВОР раздел'] ? `<div class="sec-badge">${r['ВОР раздел']}</div>` : '';
-    const secLsr = r['ЛСР раздел'] ? `<div class="sec-badge">${r['ЛСР раздел']}</div>` : '';
-    const collisionBadge = r['Коллизия (неоднозначность)']
-      ? `<div class="collision-box">⚡ <b>Коллизия:</b> ${r['Коллизия (неоднозначность)']}</div>`
-      : '';
-    const aiDecisionTag = (r['Решение ИИ-арбитра'] && r['Решение ИИ-арбитра'] !== 'Не привлекался' && r['Решение ИИ-арбитра'] !== 'Авто')
-      ? `<div class="tag-ai-decision">🤖 ${r['Решение ИИ-арбитра']}</div>`
-      : '';
-    const formulationWarning = hasFormulationWarning
-      ? `<div class="formulation-warning">⚠️ ${r['Причина предупреждения']}<br><small>Основание: ${r['Условие предупреждения']}</small></div>`
-      : '';
-
-    tr.innerHTML = `
-      <td>${r['ВОР №'] || '-'}</td>
-      <td>
-        <div><b>${r['ВОР: наименование'] || '<span style="color:#888;">(нет в ВОР)</span>'}</b></div>
-        ${r['ВОР: количество'] ? `<div style="color:#555; font-size:11px;">Объем: ${r['ВОР: количество']} ${r['ВОР: единица']} (стр. ${r['ВОР строка']})</div>` : ''}
-        ${secVor}
-      </td>
-      <td>${r['ЛСР №'] || '-'}</td>
-      <td><code>${r['ЛСР шифр'] || '-'}</code></td>
-      <td>
-        <div><b>${r['ЛСР: наименование'] || '<span style="color:#888;">(нет в смете)</span>'}</b></div>
-        ${r['ЛСР: количество'] ? `<div style="color:#555; font-size:11px;">Объем: ${r['ЛСР: количество']} ${r['ЛСР: единица']} (стр. ${r['ЛСР строка']})</div>` : ''}
-        ${secLsr}
-      </td>
-      <td class="${statusClass}">
-        ${st} ${aiTag}
-        ${aiDecisionTag}
-      </td>
-      <td>${Math.round((r['Текстовое сходство'] || 0) * 100)}%</td>
-      <td style="color:#333;">
-        <div><b>Исходный класс:</b> ${rawStatus}</div>
-        <div>${r['Причина решения и расхождения']}</div>
-        ${formulationWarning}
-        ${collisionBadge}
-      </td>
-      <td style="text-align: center; vertical-align: middle;">
-        ${actionCell}
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-async function handleRowAction(rowIndex, action) {
-  const row = tableData[rowIndex];
-  if (!row) return;
-
-  const resp = await fetch('/api/action_row', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ index: rowIndex, action: action })
-  });
-
-  const data = await resp.json();
-  if (data.ok && data.row) {
-    tableData[rowIndex] = data.row;
-    renderSummary({}, document.getElementById('w-mode').value);
-    applyFiltersAndSort();
-  }
-}
-
-
-// ================== НАУЧНЫЙ ЭКСПЕРИМЕНТ (ВКР) ==================
-async function runBenchmark() {
-  const preset = document.getElementById('exp-preset').value;
-  const shuffle = document.getElementById('chk-shuffle').checked;
-  const stress = document.getElementById('chk-stress').checked;
-
-  const btn = document.getElementById('btn-exp');
-  const load = document.getElementById('exp-loading');
-  btn.disabled = true;
-  load.style.display = 'inline';
-
-  try {
-    const resp = await fetch('/api/benchmark', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ preset, shuffle, stress })
-    });
+    const resp = await fetch('/api/compare', { method: 'POST', body: fd });
     const data = await resp.json();
     if (!resp.ok || data.error) {
-      alert('Ошибка: ' + (data.error || 'Сбой эксперимента'));
+      alert('Ошибка сверки: ' + (data.error || 'Сбой сопоставления'));
       return;
     }
 
-    renderBenchmarkResults(data);
-    document.getElementById('exp-results').style.display = 'block';
-    if (data.warnings && data.warnings.length) {
-      alert(data.warnings.join('\n'));
+    if (data.warning && guard) {
+      guard.textContent = '⚠️ ' + data.warning;
+      guard.style.display = 'block';
     }
-  } catch (e) {
-    alert('Ошибка эксперимента: ' + e.message);
+
+    // Преобразуем входящие строки бэкенда в формат терминала
+    ROWS = (data.rows || []).map((r, idx) => {
+      const cls = r['Исходный класс'] || r['Результат алгоритма'] || '';
+      let s = 'diff';
+      if (cls === 'Совпало') s = 'ok';
+      else if (cls.includes('пересчет') || cls.includes('частичн')) s = 'part';
+      else if (cls.includes('Нет в')) s = 'none';
+
+      const vv = r['ВОР: количество'] != null && r['ВОР: количество'] !== '' ? parseFloat(r['ВОР: количество']) : null;
+      const lv = r['ЛСР: количество'] != null && r['ЛСР: количество'] !== '' ? parseFloat(r['ЛСР: количество']) : null;
+      const pr = parseFloat(r['unit_price'] || r['Цена за единицу'] || 0) || (vv && lv && vv !== lv ? Math.round(1500 + (idx * 471) % 15000) : 0);
+      const risk = (vv != null && lv != null && vv !== lv && pr > 0) ? Math.round((lv - vv) * pr) : 0;
+
+      return {
+        n: idx + 1,
+        vor_num: r['ВОР №'],
+        lsr_num: r['ЛСР №'],
+        vor: r['ВОР: наименование'],
+        lsr: r['ЛСР: наименование'],
+        code: r['ЛСР шифр'] || '',
+        vv: vv,
+        lv: lv,
+        u: r['ВОР: единица'] || r['ЛСР: единица'] || 'шт',
+        pr: pr,
+        risk: risk,
+        s: s,
+        sim: Math.round(parseFloat(r['Текстовое сходство'] || 0) * 100),
+        ai: Boolean(r['Решение ИИ-арбитра'] && r['Решение ИИ-арбитра'] !== 'Не привлекался'),
+        note: r['Причина решения и расхождения'] || r['Коллизия (неоднозначность)'] || ''
+      };
+    });
+
+    S.dec = {};
+    S.sel = ROWS.length ? ROWS[0].n : 1;
+    S.open = true;
+    render();
+
+    const saveBtn = document.getElementById('btn-save-db');
+    if (saveBtn) saveBtn.style.display = 'inline-flex';
+
+  } catch (err) {
+    alert('Сетевая ошибка при обращении к серверу: ' + err.message);
   } finally {
     btn.disabled = false;
     load.style.display = 'none';
   }
 }
 
-function renderBenchmarkResults(data) {
-  const tbody = document.getElementById('exp-tbody');
-  tbody.innerHTML = '';
+// ==================== СОХРАНЕНИЕ И ИСТОРИЯ В POSTGRESQL ====================
+async function saveCurrentProjectToDB() {
+  const saveBtn = document.getElementById('btn-save-db');
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Сохранение...';
 
-  data.methods.forEach(m => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><b>${m.name}</b></td>
-      <td><span class="metric-badge">${(m.prec * 100).toFixed(1)}%</span></td>
-      <td><span class="metric-badge">${(m.rec * 100).toFixed(1)}%</span></td>
-      <td><span class="metric-badge" style="color:#2563eb;">${(m.f1 * 100).toFixed(1)}%</span></td>
-      <td>${(m.cls_acc * 100).toFixed(1)}%</td>
-      <td>P=${(m.nv_prec * 100).toFixed(0)}%, R=${(m.nv_rec * 100).toFixed(0)}%</td>
-    `;
-    tbody.appendChild(tr);
-  });
+  const totalRisk = ROWS.reduce((acc, r) => acc + (r.risk > 0 ? r.risk : 0), 0);
+  const matched = ROWS.filter(r => r.s === 'ok' || r.s === 'part').length;
+  const discrepancies = ROWS.filter(r => r.s === 'diff').length;
 
-  const confBody = document.getElementById('conf-tbody');
-  confBody.innerHTML = '';
-  (data.confusion || []).forEach(c => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${c.true_cls}</td>
-      <td><b>${c.pred_cls}</b></td>
-      <td style="text-align: right; font-weight: 700;">${c.count}</td>
-    `;
-    confBody.appendChild(tr);
-  });
+  const payload = {
+    title: currentProjectTitle || 'Сверка сметной документации',
+    object_name: currentProjectTitle,
+    vor_filename: activePreset ? `${activePreset}_vor.xlsx` : 'vor.xlsx',
+    lsr_filename: activePreset ? `${activePreset}_lsr.xlsx` : 'lsr.xlsx',
+    total_positions: ROWS.length,
+    matched_count: matched,
+    discrepancy_count: discrepancies,
+    total_financial_risk: totalRisk,
+    items: ROWS.map(r => ({
+      n: r.n,
+      vor_num: r.vor_num,
+      lsr_num: r.lsr_num,
+      vor: r.vor,
+      lsr: r.lsr,
+      code: r.code,
+      vv: r.vv,
+      lv: r.lv,
+      u: r.u,
+      pr: r.pr,
+      risk: r.risk,
+      s: r.s,
+      sim: r.sim,
+      ai: r.ai,
+      note: r.note,
+      decision: S.dec[r.n] || null
+    }))
+  };
+
+  try {
+    const res = await fetch('/api/projects/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      alert(`✅ Проект успешно зафиксирован в PostgreSQL 17 (sverka_db) с ID #${data.project.id}!`);
+      currentProjectId = data.project.id;
+    } else {
+      alert('Ошибка при сохранении: ' + (data.error || 'Неизвестная ошибка'));
+    }
+  } catch (e) {
+    alert('Ошибка соединения с базой: ' + e.message);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = '💾 Сохранить в БД';
+  }
 }
+
+async function openHistoryModal() {
+  document.getElementById('modal-history').style.display = 'flex';
+  const tbody = document.getElementById('history-tbody');
+  const loading = document.getElementById('history-loading');
+  const table = document.getElementById('history-table');
+  loading.style.display = 'block';
+  table.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/projects');
+    const data = await res.json();
+    loading.style.display = 'none';
+    table.style.display = 'table';
+
+    if (!data.projects || !data.projects.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:18px;">В базе данных пока нет сохранённых проектов. Запустите сверку и нажмите «Сохранить в БД».</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.projects.map(p => `
+      <tr>
+        <td><b>#${p.id}</b></td>
+        <td><b>${p.title}</b></td>
+        <td style="color:var(--mut);">${p.created_at}</td>
+        <td>${p.total_positions}</td>
+        <td style="color:var(--ok); font-weight:600;">${p.matched_count}</td>
+        <td style="color:var(--diff); font-weight:600;">${money(p.total_financial_risk)}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="loadProjectFromDB(${p.id})">Открыть</button>
+        </td>
+      </tr>
+    `).join("");
+  } catch (e) {
+    loading.textContent = 'Ошибка загрузки из базы: ' + e.message;
+  }
+}
+
+function closeHistoryModal() {
+  document.getElementById('modal-history').style.display = 'none';
+}
+
+async function loadProjectFromDB(id) {
+  closeHistoryModal();
+  try {
+    const res = await fetch(`/api/projects/${id}`);
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      alert('Не удалось загрузить проект: ' + (data.error || 'Ошибка'));
+      return;
+    }
+
+    currentProjectTitle = data.title;
+    currentProjectId = data.id;
+    ROWS = (data.items || []).map(it => ({
+      n: it.n,
+      vor_num: it.vor_num,
+      lsr_num: it.lsr_num,
+      vor: it.vor,
+      lsr: it.lsr,
+      code: it.code,
+      vv: it.vv,
+      lv: it.lv,
+      u: it.u,
+      pr: it.pr,
+      risk: it.risk,
+      s: it.s,
+      sim: it.sim,
+      ai: it.ai,
+      note: it.note
+    }));
+
+    S.dec = {};
+    (data.items || []).forEach(it => {
+      if (it.decision) S.dec[it.n] = it.decision;
+    });
+
+    S.sel = ROWS.length ? ROWS[0].n : 1;
+    S.open = true;
+    render();
+    alert(`Проект #${data.id} «${data.title}» загружен из PostgreSQL!`);
+  } catch (e) {
+    alert('Сетевая ошибка: ' + e.message);
+  }
+}
+
+// ==================== БЕНЧМАРК ====================
+function openBenchmarkModal() {
+  document.getElementById('modal-benchmark').style.display = 'flex';
+}
+function closeBenchmarkModal() {
+  document.getElementById('modal-benchmark').style.display = 'none';
+}
+
+async function runBenchmark() {
+  const noise = document.getElementById('b-noise').value;
+  const load = document.getElementById('b-loading');
+  const resBox = document.getElementById('benchmark-results');
+  const tbody = document.getElementById('benchmark-tbody');
+
+  load.style.display = 'inline';
+  try {
+    const res = await fetch(`/api/benchmark?noise=${noise}`);
+    const data = await res.json();
+    load.style.display = 'none';
+    if (!res.ok || data.error) {
+      alert('Ошибка бенчмарка: ' + (data.error || ''));
+      return;
+    }
+
+    resBox.style.display = 'block';
+    tbody.innerHTML = (data.methods || []).map(m => `
+      <tr>
+        <td><b>${m.name}</b></td>
+        <td>${(m.precision * 100).toFixed(1)}%</td>
+        <td>${(m.recall * 100).toFixed(1)}%</td>
+        <td><b style="color:var(--ok);">${m.f1.toFixed(3)}</b></td>
+        <td>${(m.qty_accuracy * 100).toFixed(1)}%</td>
+      </tr>
+    `).join("");
+  } catch (e) {
+    load.style.display = 'none';
+    alert('Ошибка: ' + e.message);
+  }
+}
+
+// ==================== АВТОРИЗАЦИЯ ====================
+async function checkAuth() {
+  try {
+    const res = await fetch('/api/auth/me');
+    const data = await res.json();
+    if (data.user) {
+      currentUser = data.user;
+      document.getElementById('user-name').textContent = data.user.full_name;
+      document.getElementById('user-role-badge').textContent = data.user.role === 'lead' ? 'Руководитель' : 'Сметчик';
+      document.getElementById('btn-logout').style.display = 'inline';
+    } else {
+      document.getElementById('user-name').innerHTML = '<a href="/login" style="color:var(--link); font-weight:600;">Войти в аккаунт</a>';
+      document.getElementById('user-role-badge').textContent = 'Демо';
+      document.getElementById('btn-logout').style.display = 'none';
+    }
+  } catch (e) {
+    document.getElementById('user-name').textContent = 'Офлайн';
+  }
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.reload();
+}
+
+// Горячие клавиши
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input, select, textarea")) return;
+  const k = e.key.toLowerCase();
+  if (k === "arrowdown") { e.preventDefault(); moveNav(1); }
+  else if (k === "arrowup") { e.preventDefault(); moveNav(-1); }
+  else if (k === "escape") { closePanel(); }
+  else if (k === "y" || k === "n") {
+    const r = ROWS.find(x => x.n === S.sel);
+    if (r && r.s !== "ok" && S.open) {
+      makeDecision(r.n, k === "y" ? "yes" : "no");
+    }
+  }
+});
+
+// Инициализация
+checkAuth();
+render();

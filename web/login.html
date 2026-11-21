@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход в систему | СверкаСмет</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    :root {
+      --bg: #EEF1F4;
+      --card: #FFFFFF;
+      --ink: #1F3A5F;
+      --ink-dark: #122238;
+      --text: #1D2733;
+      --mut: #5F6F84;
+      --line: #D3DAE3;
+      --line2: #AEBAC9;
+      --hdr: #E6EBF1;
+      --ok: #2F7D5B;
+      --diff: #C2561B;
+      --bad: #B3382C;
+      --link: #1F5FBF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 "Golos Text", system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+    }
+    .auth-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 12px 32px rgba(31, 58, 95, 0.08);
+      overflow: hidden;
+    }
+    .auth-header {
+      background: var(--hdr);
+      border-bottom: 1px solid var(--line);
+      padding: 22px 24px;
+      text-align: center;
+    }
+    .auth-header b {
+      display: block;
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--ink);
+      letter-spacing: -0.5px;
+    }
+    .auth-header span {
+      font-size: 13px;
+      color: var(--mut);
+    }
+    .auth-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--line);
+      background: #fafbfc;
+    }
+    .auth-tab {
+      flex: 1;
+      text-align: center;
+      padding: 12px;
+      font-weight: 600;
+      font-size: 13.5px;
+      cursor: pointer;
+      color: var(--mut);
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s ease;
+    }
+    .auth-tab.active {
+      color: var(--ink);
+      border-bottom-color: var(--ink);
+      background: #fff;
+    }
+    .auth-body {
+      padding: 24px;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line2);
+      border-radius: 5px;
+      font-family: inherit;
+      font-size: 14px;
+      background: #fff;
+      color: var(--text);
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--link);
+      box-shadow: 0 0 0 2px rgba(31, 95, 191, 0.15);
+    }
+    .btn-submit {
+      width: 100%;
+      background: var(--ink);
+      color: #fff;
+      border: 1px solid var(--ink);
+      padding: 11px;
+      font-size: 14.5px;
+      font-weight: 600;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.15s ease;
+    }
+    .btn-submit:hover {
+      background: var(--ink-dark);
+    }
+    .demo-box {
+      margin-top: 20px;
+      padding: 14px;
+      background: #F0FDF4;
+      border: 1px solid #BBF7D0;
+      border-radius: 6px;
+      text-align: center;
+    }
+    .demo-box small {
+      display: block;
+      color: #166534;
+      font-weight: 600;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .btn-demo {
+      width: 100%;
+      background: #16A34A;
+      color: #fff;
+      border: 0;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn-demo:hover {
+      background: #15803D;
+    }
+    .msg-error {
+      display: none;
+      background: #FEF2F2;
+      border: 1px solid #F87171;
+      color: var(--bad);
+      padding: 9px 12px;
+      border-radius: 5px;
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+    .auth-footer {
+      text-align: center;
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--mut);
+    }
+    .auth-footer a {
+      color: var(--link);
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="auth-card">
+    <div class="auth-header">
+      <b>СверкаСмет</b>
+      <span>Авторизация в защищённом контуре B2B SaaS</span>
+    </div>
+
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">Вход в систему</div>
+      <div class="auth-tab" id="tab-reg" onclick="switchAuthTab('reg')">Регистрация</div>
+    </div>
+
+    <div class="auth-body">
+      <div id="error-box" class="msg-error"></div>
+
+      <!-- ФОРМА ВХОДА -->
+      <form id="form-login" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label>Рабочий Email:</label>
+          <input type="email" id="l-email" placeholder="estimator@company.ru" required>
+        </div>
+        <div class="form-group">
+          <label>Пароль:</label>
+          <input type="password" id="l-password" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn-submit" id="l-submit-btn">Войти в рабочее место</button>
+
+        <div class="demo-box">
+          <small>⚡ Экспресс-доступ для защиты диплома (ГЭК):</small>
+          <button type="button" class="btn-demo" onclick="fillDemoAndLogin()">
+            Войти как Саргсян Гагик (Ведущий сметчик)
+          </button>
+        </div>
+      </form>
+
+      <!-- ФОРМА РЕГИСТРАЦИИ -->
+      <form id="form-reg" style="display:none;" onsubmit="handleRegister(event)">
+        <div class="form-group">
+          <label>ФИО инженера / эксперта:</label>
+          <input type="text" id="r-name" placeholder="Саргсян Гагик Артакович" required>
+        </div>
+        <div class="form-group">
+          <label>Рабочий Email:</label>
+          <input type="email" id="r-email" placeholder="g.sargsyan@company.ru" required>
+        </div>
+        <div class="form-group">
+          <label>Организация (заказчик / подрядчик):</label>
+          <input type="text" id="r-company" placeholder="ООО «СтройЭкспертиза»">
+        </div>
+        <div class="form-group">
+          <label>Роль в системе:</label>
+          <select id="r-role">
+            <option value="estimator" selected>Инженер-сметчик (подрядчик)</option>
+            <option value="lead">Ведущий эксперт / Руководитель ПТО</option>
+            <option value="auditor">Служба заказчика / Технадзор</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Пароль для входа:</label>
+          <input type="password" id="r-password" placeholder="Минимум 6 символов" required minlength="6">
+        </div>
+        <button type="submit" class="btn-submit" id="r-submit-btn">Зарегистрировать аккаунт</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="auth-footer">
+    <a href="/">← Вернуться на главную страницу стартапа</a> · <a href="/app">Демо-режим без входа</a>
+  </div>
+
+  <script>
+    function switchAuthTab(type) {
+      document.getElementById('error-box').style.display = 'none';
+      if (type === 'login') {
+        document.getElementById('tab-login').classList.add('active');
+        document.getElementById('tab-reg').classList.remove('active');
+        document.getElementById('form-login').style.display = 'block';
+        document.getElementById('form-reg').style.display = 'none';
+      } else {
+        document.getElementById('tab-login').classList.remove('active');
+        document.getElementById('tab-reg').classList.add('active');
+        document.getElementById('form-login').style.display = 'none';
+        document.getElementById('form-reg').style.display = 'block';
+      }
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('error-box');
+      box.textContent = msg;
+      box.style.display = 'block';
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const email = document.getElementById('l-email').value.trim();
+      const password = document.getElementById('l-password').value;
+      const btn = document.getElementById('l-submit-btn');
+      btn.textContent = 'Проверка доступа...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showError(data.error || 'Ошибка авторизации');
+          btn.textContent = 'Войти в рабочее место';
+          btn.disabled = false;
+        } else {
+          window.location.href = '/app';
+        }
+      } catch (err) {
+        showError('Ошибка связи с сервером');
+        btn.textContent = 'Войти в рабочее место';
+        btn.disabled = false;
+      }
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      const full_name = document.getElementById('r-name').value.trim();
+      const email = document.getElementById('r-email').value.trim();
+      const company = document.getElementById('r-company').value.trim();
+      const role = document.getElementById('r-role').value;
+      const password = document.getElementById('r-password').value;
+      const btn = document.getElementById('r-submit-btn');
+      btn.textContent = 'Регистрация в PostgreSQL...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ full_name, email, company, role, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showError(data.error || 'Ошибка регистрации');
+          btn.textContent = 'Зарегистрировать аккаунт';
+          btn.disabled = false;
+        } else {
+          window.location.href = '/app';
+        }
+      } catch (err) {
+        showError('Ошибка связи с базой данных');
+        btn.textContent = 'Зарегистрировать аккаунт';
+        btn.disabled = false;
+      }
+    }
+
+    function fillDemoAndLogin() {
+      document.getElementById('l-email').value = 'demo@sverkasmet.ru';
+      document.getElementById('l-password').value = 'P@ssw0rd';
+      document.getElementById('form-login').dispatchEvent(new Event('submit'));
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>СверкаСмет | Интеллектуальный аудит сметной документации (B2B SaaS)</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    :root {
+      --bg: #EEF1F4;
+      --card: #FFFFFF;
+      --ink: #1F3A5F;
+      --ink-dark: #122238;
+      --text: #1D2733;
+      --mut: #5F6F84;
+      --line: #D3DAE3;
+      --line2: #AEBAC9;
+      --hdr: #E6EBF1;
+      --ok: #2F7D5B;
+      --part: #9A6A00;
+      --diff: #C2561B;
+      --bad: #B3382C;
+      --link: #1F5FBF;
+      --accent: #2563EB;
+      --accent-hover: #1D4ED8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.55 "Golos Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    
+    /* Header */
+    header {
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 70px;
+    }
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+    .brand b {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--ink);
+      letter-spacing: -0.5px;
+    }
+    .brand span {
+      color: var(--mut);
+      font-size: 13px;
+      font-weight: 500;
+      border-left: 1px solid var(--line2);
+      padding-left: 12px;
+    }
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--mut);
+    }
+    .nav-links a:hover { color: var(--ink); }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 9px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .btn-outline {
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid var(--line2);
+    }
+    .btn-outline:hover {
+      border-color: var(--ink);
+      background: var(--hdr);
+    }
+    .btn-primary {
+      background: var(--ink);
+      color: #fff;
+      border: 1px solid var(--ink);
+    }
+    .btn-primary:hover {
+      background: var(--ink-dark);
+      border-color: var(--ink-dark);
+      box-shadow: 0 4px 12px rgba(31, 58, 95, 0.18);
+    }
+    .btn-accent {
+      background: var(--accent);
+      color: #fff;
+      border: 1px solid var(--accent);
+    }
+    .btn-accent:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+
+    /* Hero */
+    .hero {
+      padding: 72px 0 56px;
+      text-align: center;
+    }
+    .badge-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #fff;
+      border: 1px solid var(--line2);
+      border-radius: 20px;
+      padding: 5px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink);
+      margin-bottom: 24px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+    }
+    .badge-tag span {
+      width: 7px;
+      height: 7px;
+      background: var(--ok);
+      border-radius: 50%;
+    }
+    .hero h1 {
+      font-size: 46px;
+      line-height: 1.18;
+      font-weight: 800;
+      color: var(--ink);
+      letter-spacing: -1px;
+      max-width: 960px;
+      margin: 0 auto 20px;
+    }
+    .hero h1 em {
+      font-style: normal;
+      color: var(--link);
+      background: linear-gradient(135deg, #1F3A5F 0%, #1F5FBF 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 18px;
+      line-height: 1.6;
+      color: var(--mut);
+      max-width: 760px;
+      margin: 0 auto 36px;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    /* Live Preview Banner */
+    .preview-box {
+      margin: 40px auto 70px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 16px 40px rgba(31, 58, 95, 0.08);
+      overflow: hidden;
+      text-align: left;
+    }
+    .preview-header {
+      background: var(--hdr);
+      border-bottom: 1px solid var(--line);
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: var(--mut);
+    }
+    .preview-dots {
+      display: flex;
+      gap: 6px;
+    }
+    .preview-dots i {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--line2);
+      display: block;
+    }
+    .preview-content {
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+    }
+    .mock-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      margin-bottom: 8px;
+      font-size: 13.5px;
+    }
+    .mock-row.warn {
+      border-left: 4px solid var(--diff);
+      background: #FFFDFB;
+    }
+    .mock-row.ok {
+      border-left: 4px solid var(--ok);
+    }
+    .mock-badge {
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-diff { background: #FEF3C7; color: #92400E; }
+    .badge-ok { background: #DCFCE7; color: #166534; }
+
+    /* Stats */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 80px;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 24px 20px;
+      text-align: center;
+    }
+    .stat-card b {
+      display: block;
+      font-size: 34px;
+      font-weight: 700;
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 6px;
+    }
+    .stat-card span {
+      font-size: 13px;
+      color: var(--mut);
+      line-height: 1.4;
+    }
+
+    /* Comparison section */
+    .section-title {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .section-title h2 {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--ink);
+      margin-bottom: 12px;
+    }
+    .section-title p {
+      font-size: 16px;
+      color: var(--mut);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 80px;
+    }
+    .compare-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 32px;
+    }
+    .compare-card.bad {
+      border-top: 4px solid var(--bad);
+    }
+    .compare-card.good {
+      border-top: 4px solid var(--ok);
+      box-shadow: 0 8px 24px rgba(47, 125, 91, 0.08);
+    }
+    .compare-card h3 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .compare-card ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      font-size: 14.5px;
+    }
+    .compare-card li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .compare-card li i {
+      font-style: normal;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .bad li i { color: var(--bad); }
+    .good li i { color: var(--ok); }
+
+    /* Pricing */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-bottom: 90px;
+      align-items: stretch;
+    }
+    .price-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 32px 28px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .price-card.popular {
+      border: 2px solid var(--link);
+      box-shadow: 0 12px 30px rgba(31, 95, 191, 0.12);
+    }
+    .popular-tag {
+      position: absolute;
+      top: -12px;
+      right: 20px;
+      background: var(--link);
+      color: #fff;
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .price-card h4 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 8px;
+    }
+    .price-val {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--text);
+      margin: 16px 0 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .price-val small {
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--mut);
+    }
+    .price-desc {
+      font-size: 13px;
+      color: var(--mut);
+      margin-bottom: 24px;
+      min-height: 38px;
+    }
+    .price-features {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 13.5px;
+      margin-bottom: 28px;
+      flex-grow: 1;
+    }
+    .price-features li {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .price-features li span {
+      color: var(--ok);
+      font-weight: 700;
+    }
+
+    /* Footer */
+    footer {
+      background: var(--card);
+      border-top: 1px solid var(--line);
+      padding: 40px 0;
+      font-size: 13px;
+      color: var(--mut);
+    }
+    .footer-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    @media (max-width: 860px) {
+      .hero h1 { font-size: 32px; }
+      .stats-bar { grid-template-columns: repeat(2, 1fr); }
+      .compare-grid { grid-template-columns: 1fr; }
+      .pricing-grid { grid-template-columns: 1fr; }
+      .preview-content { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="container">
+      <nav class="nav">
+        <div class="brand">
+          <b>СверкаСмет</b>
+          <span>SmartMatcher · B2B SaaS</span>
+        </div>
+        <div class="nav-links">
+          <a href="#problem">Проблема</a>
+          <a href="#how">Алгоритм</a>
+          <a href="#pricing">Тарифы</a>
+          <a href="/login" class="btn btn-outline">Войти</a>
+          <a href="/app" class="btn btn-primary">Открыть демо</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <div class="badge-tag">
+        <span></span>
+        Свидетельство Роспатента № 2026 · Интеллектуальный аудит смет
+      </div>
+      <h1>
+        Автоматический аудит строительных смет <em>за 30 секунд</em> с оценкой финансовых рисков
+      </h1>
+      <p>
+        Интеллектуальная система сопоставления ведомостей объёмов работ (ВОР) и локальных сметных расчётов (ЛСР). Ликвидирует человеческий фактор, предотвращает переплаты и находит скрытые расхождения.
+      </p>
+      <div class="hero-actions">
+        <a href="/app" class="btn btn-accent" style="font-size: 16px; padding: 13px 28px;">
+          Запустить сверку онлайн →
+        </a>
+        <a href="/login" class="btn btn-outline" style="font-size: 16px; padding: 13px 24px;">
+          Вход для экспертов
+        </a>
+      </div>
+
+      <!-- Live Preview -->
+      <div class="preview-box">
+        <div class="preview-header">
+          <div class="preview-dots"><i></i><i></i><i></i></div>
+          <span>Интерфейс аудитора · Объект «Дворец молодёжи» (Кемерово)</span>
+          <span style="color: var(--ok); font-weight:600;">✓ SmartMatcher v2 + Alice AI Active</span>
+        </div>
+        <div class="preview-content">
+          <div>
+            <div class="mock-row ok">
+              <div>
+                <b>1. Контроллер радиоканальных устройств Панель-2-ПРО</b>
+                <div style="color:var(--mut); font-size:12px;">ГЭСНм10-08 · Объём: 1 шт → 1 шт</div>
+              </div>
+              <span class="mock-badge badge-ok">Совпало 100%</span>
+            </div>
+            <div class="mock-row warn">
+              <div>
+                <b>2. Монтаж контроллера радиоканальных устройств</b>
+                <div style="color:var(--mut); font-size:12px;">Промежуточные устройства · ВОР 1 шт vs ЛСР 8 шт</div>
+              </div>
+              <span class="mock-badge badge-diff">Риск: +129 500 ₽</span>
+            </div>
+            <div class="mock-row ok">
+              <div>
+                <b>3. Кабель КПСнг(А)-FRLS 2×2×0,5</b>
+                <div style="color:var(--mut); font-size:12px;">ФССЦ · Объём: 166 м → 1,66 (100 м)</div>
+              </div>
+              <span class="mock-badge badge-ok">Пересчёт 100 м</span>
+            </div>
+          </div>
+          <div style="background:var(--hdr); padding:16px; border-radius:6px; font-size:13px; display:flex; flex-direction:column; justify-content:center;">
+            <b style="color:var(--ink); font-size:15px; margin-bottom:6px;">Финансовая детекция коллизий</b>
+            <p style="color:var(--mut); margin-bottom:12px;">Система выявила завышение сметного расчёта на 7 единиц оборудования и рассчитала денежный эквивалент ошибки.</p>
+            <div style="font-family:'IBM Plex Mono', monospace; font-size:22px; font-weight:700; color:var(--diff);">+129 500 ₽</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Metrics -->
+  <section class="container">
+    <div class="stats-bar">
+      <div class="stat-card">
+        <b>30 сек</b>
+        <span>Время полного сопоставления 500+ позиций сметы</span>
+      </div>
+      <div class="stat-card">
+        <b>0.994</b>
+        <span>F1-Score точности детерминированного ядра</span>
+      </div>
+      <div class="stat-card">
+        <b>526 → 1</b>
+        <span>Снижение ложных коллизий фильтрацией комнатных дублей</span>
+      </div>
+      <div class="stat-card">
+        <b>100%</b>
+        <span>Офлайн-безопасность: работа в закрытом корпоративном контуре</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Problem / Solution -->
+  <section class="container" id="problem">
+    <div class="section-title">
+      <h2>Почему ручная сверка смет — это постоянный убыток?</h2>
+      <p>В проектах от 100 до 1 000 позиций человеческий глаз физически пропускает расхождения формулировок и единиц измерения.</p>
+    </div>
+
+    <div class="compare-grid">
+      <div class="compare-card bad">
+        <h3><i>✕</i> Ручная проверка инженером</h3>
+        <ul>
+          <li><i>•</i> <b>6–8 рабочих часов</b> на сверку одного объекта из 150 позиций.</li>
+          <li><i>•</i> <b>Ошибки масштаба единиц:</b> пропуск разницы между 1 м² и 100 м², ведущий к переплатам в 100 раз.</li>
+          <li><i>•</i> <b>Обобщенные расценки:</b> проектировщик пишет конкретный шкаф, а сметчик берет «Прибор или аппарат».</li>
+          <li><i>•</i> <b>Усталость и человеческий фактор:</b> к 200-й строке точность внимания падает до 40%.</li>
+        </ul>
+      </div>
+
+      <div class="compare-card good">
+        <h3><i>✓</i> Интеллектуальный SmartMatcher</h3>
+        <ul>
+          <li><i>•</i> <b>Меньше 1 минуты</b> на полный аудит комплекта любого объема.</li>
+          <li><i>•</i> <b>Автоматический пересчёт строительных единиц</b> (метры в километры, штуки в сотни штук).</li>
+          <li><i>•</i> <b>Двухуровневый ИИ-арбитраж:</b> сложные расценки разбирает нейросеть Alice AI LLM Flash.</li>
+          <li><i>•</i> <b>Расчёт финансового риска</b> для каждой спорной строки с экспортом ведомости разногласий.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section class="container" id="pricing">
+    <div class="section-title">
+      <h2>Тарифные планы для любого масштаба строительства</h2>
+      <p>Прозрачная модель монетизации на основе себестоимости вычислений (п. 4.6 ВКР).</p>
+    </div>
+
+    <div class="pricing-grid">
+      <!-- Базовый -->
+      <div class="price-card">
+        <h4>Пилот / Тест</h4>
+        <div class="price-val">0 ₽ <small>/ навсегда</small></div>
+        <div class="price-desc">Для оценки возможностей системы и разовых некоммерческих проверок.</div>
+        <ul class="price-features">
+          <li><span>✓</span> До 3 сверок в месяц</li>
+          <li><span>✓</span> Детерминированный алгоритм v2</li>
+          <li><span>✓</span> Экспорт отчёта в CSV</li>
+          <li><span>✓</span> Базовая нормализация единиц</li>
+        </ul>
+        <a href="/app" class="btn btn-outline" style="margin-top:auto;">Попробовать демо</a>
+      </div>
+
+      <!-- Профессионал -->
+      <div class="price-card popular">
+        <span class="popular-tag">Выбор ПТО</span>
+        <h4>Инженер-сметчик</h4>
+        <div class="price-val">4 900 ₽ <small>/ месяц</small></div>
+        <div class="price-desc">Для сметных отделов подрядных и проектных организаций.</div>
+        <ul class="price-features">
+          <li><span>✓</span> Безлимитное число сверок</li>
+          <li><span>✓</span> ИИ-арбитраж сложных коллизий (Alice AI)</li>
+          <li><span>✓</span> Оценка финансовых рисков в рублях</li>
+          <li><span>✓</span> Экспорт цветного акта разногласий в Excel</li>
+          <li><span>✓</span> Сохранение истории проектов в PostgreSQL</li>
+        </ul>
+        <a href="/login" class="btn btn-primary" style="margin-top:auto;">Оформить подписку</a>
+      </div>
+
+      <!-- Enterprise -->
+      <div class="price-card">
+        <h4>Корпоративный / On-Premise</h4>
+        <div class="price-val">по запросу</div>
+        <div class="price-desc">Для закрытых институтов, госзакупок и крупных девелоперов.</div>
+        <ul class="price-features">
+          <li><span>✓</span> Развёртывание в закрытом контуре заказчика</li>
+          <li><span>✓</span> Нулевая передача данных во внешние сети</li>
+          <li><span>✓</span> Поддержка локальных нейросетей (Ollama / vLLM)</li>
+          <li><span>✓</span> Интеграция с корпоративными базами и 1С</li>
+          <li><span>✓</span> Приоритетная техподдержка и SLA 99.9%</li>
+        </ul>
+        <a href="mailto:contact@sverkasmet.ru" class="btn btn-outline" style="margin-top:auto;">Запросить КП</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-content">
+        <div>
+          <b>СверкаСмет</b> · Информационная система интеллектуального аудита смет
+          <div style="margin-top:4px; font-size:12px;">Разработано в рамках выпускной квалификационной работы (ТюмГУ, ШКН, 2026)</div>
+        </div>
+        <div style="display:flex; gap:16px;">
+          <a href="/app" style="color:var(--ink); font-weight:600;">Рабочий терминал</a>
+          <a href="/login">Кабинет сметчика</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

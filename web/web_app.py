@@ -22,7 +22,9 @@ import webbrowser
 from pathlib import Path
 from typing import List, Dict, Any
 
-from flask import Flask, request, jsonify, Response, stream_with_context
+from flask import Flask, request, jsonify, Response, stream_with_context, session
+from sqlalchemy import desc
+from db import SessionLocal, User, Project, AuditItem
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,17 @@ app = Flask(
     static_url_path=""
 )
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
+app.secret_key = os.getenv("SECRET_KEY", "sverkasmet-secure-key-2026-b2b")
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+
+@app.teardown_appcontext
+def remove_db_session(exception=None):
+    try:
+        SessionLocal.remove()
+    except Exception:
+        pass
 
 DATA_DIR = ROOT_DIR / "data"
 RESULTS_DIR = ROOT_DIR / "results"
@@ -110,7 +123,19 @@ FIELDS = [
 
 
 @app.route('/')
-def index():
+def landing():
+    landing_path = WEB_DIR / "landing.html"
+    return Response(landing_path.read_text(encoding="utf-8"), mimetype="text/html")
+
+
+@app.route('/login')
+def login():
+    login_path = WEB_DIR / "login.html"
+    return Response(login_path.read_text(encoding="utf-8"), mimetype="text/html")
+
+
+@app.route('/app')
+def app_view():
     html_path = WEB_DIR / "index.html"
     return Response(html_path.read_text(encoding="utf-8"), mimetype="text/html")
 
@@ -634,6 +659,188 @@ def api_download_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment;filename=sverka_results.csv"}
     )
+
+
+# ==========================================
+# API АВТОРИЗАЦИИ И ПРОЕКТОВ (PostgreSQL 17)
+# ==========================================
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_register():
+    data = request.get_json() or {}
+    email = data.get('email', '').strip().lower()
+    password = data.get('password', '')
+    full_name = data.get('full_name', '').strip()
+    role = data.get('role', 'estimator')
+    company = data.get('company', '').strip()
+
+    if not email or not password or not full_name:
+        return jsonify({'error': 'Заполните обязательные поля: Email, пароль и ФИО'}), 400
+
+    db_sess = SessionLocal()
+    try:
+        if db_sess.query(User).filter_by(email=email).first():
+            return jsonify({'error': 'Пользователь с таким email уже зарегистрирован'}), 400
+
+        user = User(
+            email=email,
+            full_name=full_name,
+            role=role,
+            company=company
+        )
+        user.set_password(password)
+        db_sess.add(user)
+        db_sess.commit()
+        db_sess.refresh(user)
+
+        session['user_id'] = user.id
+        return jsonify({'ok': True, 'user': user.to_dict()}), 201
+    finally:
+        db_sess.close()
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    data = request.get_json() or {}
+    email = data.get('email', '').strip().lower()
+    password = data.get('password', '')
+
+    db_sess = SessionLocal()
+    try:
+        user = db_sess.query(User).filter_by(email=email).first()
+        if not user or not user.check_password(password):
+            return jsonify({'error': 'Неверный email или пароль'}), 401
+
+        session['user_id'] = user.id
+        return jsonify({'ok': True, 'user': user.to_dict()})
+    finally:
+        db_sess.close()
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    session.pop('user_id', None)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def api_me():
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({'user': None})
+
+    db_sess = SessionLocal()
+    try:
+        user = db_sess.query(User).filter_by(id=user_id).first()
+        return jsonify({'user': user.to_dict() if user else None})
+    finally:
+        db_sess.close()
+
+
+@app.route('/api/projects', methods=['GET'])
+def api_projects_list():
+    user_id = session.get('user_id')
+    db_sess = SessionLocal()
+    try:
+        q = db_sess.query(Project)
+        if user_id:
+            user = db_sess.query(User).filter_by(id=user_id).first()
+            if user and user.role != 'lead':
+                q = q.filter((Project.user_id == user_id) | (Project.user_id == None))
+        projects = q.order_by(desc(Project.created_at)).all()
+        return jsonify({'projects': [p.to_dict() for p in projects]})
+    finally:
+        db_sess.close()
+
+
+@app.route('/api/projects/<int:project_id>', methods=['GET'])
+def api_project_detail(project_id):
+    db_sess = SessionLocal()
+    try:
+        project = db_sess.query(Project).filter_by(id=project_id).first()
+        if not project:
+            return jsonify({'error': 'Проект не найден'}), 404
+        items = [it.to_dict() for it in project.items]
+        res = project.to_dict()
+        res['items'] = items
+        return jsonify(res)
+    finally:
+        db_sess.close()
+
+
+@app.route('/api/projects/save', methods=['POST'])
+def api_project_save():
+    data = request.get_json() or {}
+    user_id = session.get('user_id')
+
+    title = data.get('title', 'Новая сверка')
+    object_name = data.get('object_name', title)
+    items_data = data.get('items', [])
+
+    db_sess = SessionLocal()
+    try:
+        project = Project(
+            user_id=user_id,
+            title=title,
+            object_name=object_name,
+            vor_filename=data.get('vor_filename'),
+            lsr_filename=data.get('lsr_filename'),
+            total_positions=data.get('total_positions', len(items_data)),
+            matched_count=data.get('matched_count', 0),
+            discrepancy_count=data.get('discrepancy_count', 0),
+            total_financial_risk=float(data.get('total_financial_risk', 0.0))
+        )
+        db_sess.add(project)
+        db_sess.flush()
+
+        for item in items_data:
+            audit_item = AuditItem(
+                project_id=project.id,
+                row_num=item.get('n', 0),
+                vor_num=str(item.get('vor_num') or ''),
+                lsr_num=str(item.get('lsr_num') or ''),
+                vor_name=item.get('vor', ''),
+                lsr_name=item.get('lsr', ''),
+                code=item.get('code', ''),
+                qty_vor=float(item['vv']) if item.get('vv') is not None else None,
+                qty_lsr=float(item['lv']) if item.get('lv') is not None else None,
+                unit=item.get('u', ''),
+                unit_price=float(item['pr']) if item.get('pr') is not None else 0.0,
+                financial_risk=float(item.get('risk', 0.0)),
+                status=item.get('s', 'none'),
+                detail_class=item.get('detail_class', ''),
+                similarity=float(item.get('sim', 0)) / 100.0 if item.get('sim') is not None else 0.0,
+                is_ai=bool(item.get('ai', False)),
+                explanation=item.get('note', ''),
+                user_decision=item.get('decision')
+            )
+            db_sess.add(audit_item)
+
+        db_sess.commit()
+        return jsonify({'ok': True, 'project': project.to_dict()}), 201
+    finally:
+        db_sess.close()
+
+
+@app.route('/api/projects/item_decision', methods=['POST'])
+def api_item_decision():
+    data = request.get_json() or {}
+    item_id = data.get('item_id')
+    decision = data.get('decision')
+
+    if not item_id:
+        return jsonify({'error': 'item_id обязателен'}), 400
+
+    db_sess = SessionLocal()
+    try:
+        item = db_sess.query(AuditItem).filter_by(id=item_id).first()
+        if not item:
+            return jsonify({'error': 'Строка не найдена'}), 404
+        item.user_decision = decision
+        db_sess.commit()
+        return jsonify({'ok': True, 'item': item.to_dict()})
+    finally:
+        db_sess.close()
 
 
 def open_browser():
