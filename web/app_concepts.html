@@ -412,7 +412,8 @@
       display: flex;
       gap: 14px;
       align-items: stretch;
-      min-height: 580px;
+      height: calc(100vh - 120px);
+      min-height: 600px;
       position: relative;
     }
     .cd-table-container {
@@ -421,10 +422,18 @@
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 6px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: auto;
+      display: block;
       transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .cd-table-container table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: var(--hdr);
+      box-shadow: 0 1.5px 0 var(--ink);
     }
     .cd-inspector-panel {
       width: 440px;
@@ -436,6 +445,7 @@
       flex-direction: column;
       transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
       overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     .cd-inspector-panel.hidden {
       width: 0;
@@ -1018,78 +1028,7 @@
     /* -------------------------------------------------------------------------
        ДАННЫЕ И ИНТЕРАКТИВНОСТЬ ДЛЯ ВАРИАНТА D (ЭРГОНОМИЧНЫЙ МИКС)
        ------------------------------------------------------------------------- */
-    const cdRows = [
-      {
-        id: 1,
-        vor: "Монтаж Контроллера радиоканальных устройств",
-        lsr: "Устройства промежуточные на количество лучей: 10",
-        code: "ГЭСНм10-08-001-11",
-        vv: "1.0 шт",
-        lv: "1.0 шт",
-        status: "part",
-        statusText: "Проверка наименования",
-        sim: 14,
-        risk: "0 ₽",
-        decision: null,
-        reason: "✓ Единицы измерения сопоставимы: шт = шт.<br>✓ Объём полностью совпадает: 1.0 шт == 1.0 шт.<br>⚠️ Сходство текста 14% ниже порога 55%: пара найдена вторым проходом по шифру ГЭСНм и совпадению объёма. Требуется подтверждение инженера."
-      },
-      {
-        id: 2,
-        vor: "Устройство стяжек ц/п толщ. <mark class=\"df\">50мм</mark>",
-        lsr: "Устройство стяжек цементных толщ. <mark class=\"df\">20мм</mark>",
-        code: "ГЭСН11-01-011-01",
-        vv: "420.0 м²",
-        lv: "4.2 (100м² = 420 м²)",
-        status: "diff",
-        statusText: "Коллизия параметров",
-        sim: 88,
-        risk: "+310 000 ₽",
-        decision: null,
-        reason: "✓ Объём нормализован: 4.2 × 100 м² = 420 м².<br>⚠️ Коллизия толщины слоя: в проекте 50 мм, в смете осмечено только 20 мм (недобор 30 мм раствора).<br>Финансовое занижение сметы подрядчика на 310 000 ₽."
-      },
-      {
-        id: 3,
-        vor: "Огнезащитная обработка воздуховодов систем вентиляции",
-        lsr: "<span style=\"color:var(--bad); font-weight:600;\">[Отсутствует в смете подрядчика]</span>",
-        code: "—",
-        vv: "350.0 м²",
-        lv: "0 м²",
-        status: "bad",
-        statusText: "Нет в смете",
-        sim: 0,
-        risk: "+981 000 ₽",
-        decision: "no",
-        reason: "🚨 Критический дефицит: обязательные противопожарные работы по СП 7.13130 полностью исключены из сметного расчета.<br>Требуется выставление предписания и включение позиции в смету."
-      },
-      {
-        id: 4,
-        vor: "Кабель огнестойкий КПСнг(А)-FRLS 2×2×0,5",
-        lsr: "Кабель КПСнг-FRLS 2×2×0,5",
-        code: "ГЭСНм08-02-399-01",
-        vv: "166.0 м",
-        lv: "1.66 (100м = 166 м)",
-        status: "ok",
-        statusText: "Точное совпадение",
-        sim: 100,
-        risk: "0 ₽",
-        decision: "yes",
-        reason: "✓ Полное тождество технических характеристик и объема.<br>✓ Автоматический пересчет единицы измерения (100 м ↔ м) подтвержден."
-      },
-      {
-        id: 5,
-        vor: "Прокладка коробов пластиковых перфорированных",
-        lsr: "Прокладка коробов пластмассовых в помещениях",
-        code: "ГЭСНм08-02-396-05",
-        vv: "80.0 м",
-        lv: "120.0 м",
-        status: "diff",
-        statusText: "Расхождение объёма",
-        sim: 91,
-        risk: "+18 400 ₽",
-        decision: null,
-        reason: "⚠️ Превышение объёма: в смете заложено 120 м против 80 м по проекту (+40 м избытка).<br>Риск завышения стоимости работ на 18 400 ₽."
-      }
-    ];
+    const cdRows = [{"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}, {"id": 1, "vor_num": "", "lsr_num": "", "vor": "", "lsr": "[Не осмечено]", "code": "—", "vv": "—", "lv": "—", "status": "bad", "statusText": "Нет в смете", "sim": 0, "risk": "0 ₽", "decision": null, "reason": "Пара сопоставлена алгоритмом SmartMatcher v2."}];
 
     let cdActiveIdx = 0;
     let cdInspectorOpen = true;
@@ -1101,6 +1040,7 @@
 
       cdRows.forEach((r, idx) => {
         const tr = document.createElement('tr');
+        tr.id = `cd-row-${idx}`;
         if (idx === cdActiveIdx) tr.classList.add('active');
         tr.onclick = () => cdSelectRow(idx);
 
@@ -1133,7 +1073,7 @@
             <span class="t-code" style="color:var(--mut); font-size:11px; margin-left:4px;">${r.sim}%</span>
           </td>
           <td class="t-code" style="font-weight:700; color:${r.risk === '0 ₽' ? 'var(--ok)' : 'var(--diff)'};">${r.risk}</td>
-          <td style="text-align:center;">${decHtml}</td>
+          <td id="cd-cell-dec-${idx}" style="text-align:center;">${decHtml}</td>
         `;
         tbody.appendChild(tr);
       });
@@ -1142,7 +1082,11 @@
     function cdSelectRow(idx) {
       cdActiveIdx = idx;
       if (!cdInspectorOpen) cdToggleInspector(true);
-      cdRenderTable();
+
+      document.querySelectorAll('#cd-tbody tr').forEach((tr, i) => {
+        if (i === idx) tr.classList.add('active');
+        else tr.classList.remove('active');
+      });
 
       const r = cdRows[idx];
       document.getElementById('cd-hdr-title').textContent = `Инспекция строки #${r.id}`;
@@ -1174,11 +1118,21 @@
     function cdInlineDecision(idx, dec, evt) {
       if (evt) evt.stopPropagation();
       cdRows[idx].decision = dec;
+      const cell = document.getElementById(`cd-cell-dec-${idx}`);
+      if (cell) {
+        if (dec === 'yes') cell.innerHTML = `<span class="badge-decision-yes">✓ Принято</span>`;
+        else if (dec === 'no') cell.innerHTML = `<span class="badge-decision-no">✕ Отклонено</span>`;
+      }
       cdSelectRow(idx);
     }
 
     function cdApplyDecision(dec) {
       cdRows[cdActiveIdx].decision = dec;
+      const cell = document.getElementById(`cd-cell-dec-${cdActiveIdx}`);
+      if (cell) {
+        if (dec === 'yes') cell.innerHTML = `<span class="badge-decision-yes">✓ Принято</span>`;
+        else if (dec === 'no') cell.innerHTML = `<span class="badge-decision-no">✕ Отклонено</span>`;
+      }
       cdSelectRow(cdActiveIdx);
     }
 
