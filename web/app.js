@@ -627,16 +627,16 @@ async function saveCurrentProjectToDB() {
     });
     const data = await res.json();
     if (res.ok && data.ok) {
-      showToast(`✅ Проект успешно зафиксирован в PostgreSQL (ID #${data.project.id})!`, 'success');
+      showToast(`✅ Проект успешно сохранён в истории (ID #${data.project.id})!`, 'success');
       currentProjectId = data.project.id;
     } else {
       showToast('Ошибка при сохранении: ' + (data.error || 'Неизвестная ошибка'), 'error');
     }
   } catch (e) {
-    showToast('Ошибка соединения с базой: ' + e.message, 'error');
+    showToast('Ошибка сохранения: ' + e.message, 'error');
   } finally {
     saveBtn.disabled = false;
-    saveBtn.textContent = '💾 Сохранить в БД';
+    saveBtn.textContent = '💾 Сохранить проект';
   }
 }
 
@@ -655,7 +655,7 @@ async function openHistoryModal() {
     table.style.display = 'table';
 
     if (!data.projects || !data.projects.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:18px;">В базе данных пока нет сохранённых проектов. Запустите сверку и нажмите «Сохранить в БД».</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:18px;">В истории пока нет сохранённых проверок. Запустите сверку смет и нажмите «Сохранить проект».</td></tr>';
       return;
     }
 
