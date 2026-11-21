@@ -437,6 +437,59 @@
     .cd-search-input:focus {
       border-color: var(--ink);
     }
+    .cd-select-sm {
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 11.5px;
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      outline: none;
+    }
+    .cd-select-sm:focus {
+      border-color: var(--ink);
+    }
+    .cd-checkbox-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #9A3412;
+      background: #FFF7ED;
+      border: 1px solid #FED7AA;
+      padding: 2px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .cd-checkbox-label:hover {
+      background: #FFEDD5;
+    }
+    .ca-table th.sortable {
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+    .ca-table th.sortable:hover {
+      background: #D8E2ED;
+      color: #0E1B2D;
+    }
+    .sort-arrow {
+      font-size: 10px;
+      margin-left: 3px;
+      color: var(--mut);
+    }
+    .ca-table th.active-sort {
+      background: #D0DCEB;
+      color: var(--ink);
+    }
+    .ca-table th.active-sort .sort-arrow {
+      color: var(--ink);
+      font-weight: 700;
+    }
     .cd-layout {
       display: flex;
       gap: 14px;
@@ -941,18 +994,45 @@
         </div>
       </div>
 
-      <!-- Строка 2: Фильтры по статусам и финансовый риск -->
+      <!-- Строка 2: Фильтры по статусам, фильтр решений, чекбокс риска и меню сортировки -->
       <div class="cd-tb-row2">
         <div class="cd-tb-chips">
+          <span style="font-size:11.5px; color:var(--mut); font-weight:600; margin-right:2px;">Статус:</span>
           <button class="cd-chip-btn active" onclick="cdFilterStatus('all', this)">Все: 86</button>
           <button class="cd-chip-btn" style="color:var(--ok);" onclick="cdFilterStatus('ok', this)">✓ 68 Совпало</button>
           <button class="cd-chip-btn" style="color:var(--part);" onclick="cdFilterStatus('part', this)">⚠️ 17 Проверка</button>
           <button class="cd-chip-btn" style="color:var(--diff);" onclick="cdFilterStatus('diff', this)">⚡ 1 Коллизия</button>
-          <button class="cd-chip-btn" style="color:var(--bad);" onclick="cdFilterStatus('bad', this)">✕ 0 Нет в смете</button>
+          <button class="cd-chip-btn" style="color:var(--bad);" onclick="cdFilterStatus('bad', this)">✕ 0 Нет</button>
+
+          <span style="color:var(--line); margin:0 4px;">|</span>
+          <span style="font-size:11.5px; color:var(--mut); font-weight:600;">Решение:</span>
+          <select id="cd-filter-decision" class="cd-select-sm" onchange="cdFilterDecision(this.value)">
+            <option value="all">Все решения</option>
+            <option value="pending">⏳ Ожидают решения</option>
+            <option value="yes">✓ Принято инженером</option>
+            <option value="no">✕ Отклонено инженером</option>
+          </select>
+
+          <label class="cd-checkbox-label" title="Показать только позиции с ненулевым финансовым риском">
+            <input type="checkbox" id="cd-check-risk" onchange="cdToggleOnlyRisk(this.checked)">
+            <span>💸 Только с риском</span>
+          </label>
+
+          <span id="cd-counter-badge" class="t-code" style="font-size:11px; color:var(--mut); margin-left:6px; font-weight:600;">Показано: 86 из 86</span>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:12px; color:var(--mut);">Финансовый риск:</span>
-          <span class="badge" style="background:#FFF7ED; color:#C2561B; border:1px solid #FED7AA; font-weight:700; font-size:12px;">1 291 000 ₽</span>
+
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:11.5px; color:var(--mut); font-weight:600;">Сортировка:</span>
+            <select id="cd-select-sort" class="cd-select-sm" onchange="cdSelectSortChange(this.value)">
+              <option value="id-asc">По порядку ВОР (1 → 86)</option>
+              <option value="risk-desc">По убыванию риска (₽ ↓)</option>
+              <option value="sim-asc">По сходству (от самых спорных % ↑)</option>
+              <option value="sim-desc">По сходству (от точных % ↓)</option>
+              <option value="status-priority">Сначала требующие проверки (⚠️)</option>
+            </select>
+          </div>
+          <span class="badge" style="background:#FFF7ED; color:#C2561B; border:1px solid #FED7AA; font-weight:700; font-size:12px;">Риск: 1 291 000 ₽</span>
         </div>
       </div>
     </div>
@@ -964,13 +1044,27 @@
         <table class="ca-table">
           <thead>
             <tr>
-              <th style="width:45px; text-align:center;">№</th>
-              <th style="width:30%;">Позиция ВОР (Проект)</th>
-              <th style="width:30%;">Позиция ЛСР (Смета 421/пр)</th>
-              <th style="width:160px; white-space:nowrap;">Объёмы</th>
-              <th style="width:170px;">Статус / Сходство</th>
-              <th style="width:105px;">Финанс. риск</th>
-              <th style="width:130px; text-align:center;">Быстрое решение</th>
+              <th class="sortable active-sort" style="width:50px; text-align:center;" onclick="cdHeaderSort('id')">
+                № <span class="sort-arrow" id="sort-arrow-id">▲</span>
+              </th>
+              <th class="sortable" style="width:30%;" onclick="cdHeaderSort('vor')">
+                Позиция ВОР (Проект) <span class="sort-arrow" id="sort-arrow-vor">↕</span>
+              </th>
+              <th style="width:30%;">
+                Позиция ЛСР (Смета 421/пр)
+              </th>
+              <th style="width:160px; white-space:nowrap;">
+                Объёмы
+              </th>
+              <th class="sortable" style="width:170px;" onclick="cdHeaderSort('sim')">
+                Статус / Сходство <span class="sort-arrow" id="sort-arrow-sim">↕</span>
+              </th>
+              <th class="sortable" style="width:115px;" onclick="cdHeaderSort('risk')">
+                Финанс. риск <span class="sort-arrow" id="sort-arrow-risk">↕</span>
+              </th>
+              <th class="sortable" style="width:130px; text-align:center;" onclick="cdHeaderSort('decision')">
+                Быстрое решение <span class="sort-arrow" id="sort-arrow-decision">↕</span>
+              </th>
             </tr>
           </thead>
           <tbody id="cd-tbody">
@@ -1198,27 +1292,183 @@
     }
 
     let cdStatusFilter = 'all';
+    let cdDecisionFilter = 'all';
+    let cdOnlyRisk = false;
     let cdSearchQuery = '';
+    let cdSortField = 'id';
+    let cdSortAsc = true;
+
+    function cdParseRisk(riskStr) {
+      if (!riskStr) return 0;
+      const num = parseInt(riskStr.replace(/\D/g, ''), 10);
+      return isNaN(num) ? 0 : num;
+    }
+
+    function cdGetDisplayRows() {
+      // 1. Фильтрация
+      let filtered = cdRows.map((r, origIdx) => ({ ...r, _origIdx: origIdx })).filter(r => {
+        if (cdStatusFilter !== 'all' && r.status !== cdStatusFilter) return false;
+        if (cdDecisionFilter === 'pending' && r.decision) return false;
+        if (cdDecisionFilter === 'yes' && r.decision !== 'yes') return false;
+        if (cdDecisionFilter === 'no' && r.decision !== 'no') return false;
+        if (cdOnlyRisk && cdParseRisk(r.risk) <= 0) return false;
+        if (cdSearchQuery) {
+          const q = cdSearchQuery;
+          const match = r.vor.toLowerCase().includes(q) ||
+                        r.lsr.toLowerCase().includes(q) ||
+                        r.code.toLowerCase().includes(q) ||
+                        String(r.id).includes(q);
+          if (!match) return false;
+        }
+        return true;
+      });
+
+      // 2. Сортировка
+      filtered.sort((a, b) => {
+        let cmp = 0;
+        if (cdSortField === 'id') {
+          cmp = a.id - b.id;
+        } else if (cdSortField === 'vor') {
+          cmp = a.vor.localeCompare(b.vor, 'ru');
+        } else if (cdSortField === 'sim') {
+          cmp = a.sim - b.sim;
+        } else if (cdSortField === 'risk') {
+          cmp = cdParseRisk(a.risk) - cdParseRisk(b.risk);
+        } else if (cdSortField === 'decision') {
+          const decA = a.decision || '';
+          const decB = b.decision || '';
+          cmp = decA.localeCompare(decB);
+        } else if (cdSortField === 'status-priority') {
+          const priority = { 'diff': 1, 'part': 2, 'bad': 3, 'ok': 4 };
+          cmp = (priority[a.status] || 5) - (priority[b.status] || 5);
+        }
+        return cdSortAsc ? cmp : -cmp;
+      });
+
+      return filtered;
+    }
+
+    function cdRenderTable() {
+      const tbody = document.getElementById('cd-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const displayList = cdGetDisplayRows();
+
+      const counter = document.getElementById('cd-counter-badge');
+      if (counter) counter.textContent = `Показано: ${displayList.length} из ${cdRows.length}`;
+
+      if (displayList.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" style="text-align:center; padding:36px; color:var(--mut); font-size:13px;">
+              🔍 По выбранным фильтрам не найдено позиций. Попробуйте сбросить фильтры или строку поиска.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      displayList.forEach(r => {
+        const origIdx = r._origIdx;
+        const tr = document.createElement('tr');
+        tr.id = `cd-row-${origIdx}`;
+        if (origIdx === cdActiveIdx) tr.classList.add('active');
+        tr.onclick = () => cdSelectRow(origIdx);
+
+        let badgeClass = 'b-ok';
+        if (r.status === 'part') badgeClass = 'b-part';
+        if (r.status === 'diff') badgeClass = 'b-diff';
+        if (r.status === 'bad') badgeClass = 'b-bad';
+
+        let decHtml = '';
+        if (r.decision === 'yes') {
+          decHtml = `<span class="badge-decision-yes">✓ Принято</span>`;
+        } else if (r.decision === 'no') {
+          decHtml = `<span class="badge-decision-no">✕ Отклонено</span>`;
+        } else {
+          decHtml = `
+            <div style="display:inline-flex; gap:4px;" onclick="event.stopPropagation();">
+              <button class="cd-row-action-btn cd-btn-yes" onclick="cdInlineDecision(${origIdx}, 'yes', event)" title="Быстро подтвердить строку">✓</button>
+              <button class="cd-row-action-btn cd-btn-no" onclick="cdInlineDecision(${origIdx}, 'no', event)" title="Быстро отклонить строку">✕</button>
+            </div>
+          `;
+        }
+
+        tr.innerHTML = `
+          <td class="t-code" style="text-align:center;">#${r.id}</td>
+          <td><b>${r.vor}</b></td>
+          <td>${r.lsr}</td>
+          <td class="t-code" style="font-size:12px; white-space:nowrap;">${r.vv} → ${r.lv}</td>
+          <td>
+            <span class="badge ${badgeClass}">${r.statusText}</span>
+            <span class="t-code" style="color:var(--mut); font-size:11px; margin-left:4px;">${r.sim}%</span>
+          </td>
+          <td class="t-code" style="font-weight:700; color:${r.risk === '0 ₽' ? 'var(--ok)' : 'var(--diff)'};">${r.risk}</td>
+          <td id="cd-cell-dec-${origIdx}" style="text-align:center;">${decHtml}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function cdHeaderSort(field) {
+      if (cdSortField === field) {
+        cdSortAsc = !cdSortAsc;
+      } else {
+        cdSortField = field;
+        cdSortAsc = (field === 'risk') ? false : true;
+      }
+      cdUpdateSortIndicators();
+      cdRenderTable();
+    }
+
+    function cdSelectSortChange(val) {
+      if (val === 'id-asc') { cdSortField = 'id'; cdSortAsc = true; }
+      else if (val === 'risk-desc') { cdSortField = 'risk'; cdSortAsc = false; }
+      else if (val === 'sim-asc') { cdSortField = 'sim'; cdSortAsc = true; }
+      else if (val === 'sim-desc') { cdSortField = 'sim'; cdSortAsc = false; }
+      else if (val === 'status-priority') { cdSortField = 'status-priority'; cdSortAsc = true; }
+      cdUpdateSortIndicators();
+      cdRenderTable();
+    }
+
+    function cdUpdateSortIndicators() {
+      const fields = ['id', 'vor', 'sim', 'risk', 'decision'];
+      fields.forEach(f => {
+        const arrow = document.getElementById(`sort-arrow-${f}`);
+        const th = arrow ? arrow.closest('th') : null;
+        if (th) {
+          if (cdSortField === f) {
+            th.classList.add('active-sort');
+            arrow.textContent = cdSortAsc ? '▲' : '▼';
+          } else {
+            th.classList.remove('active-sort');
+            arrow.textContent = '↕';
+          }
+        }
+      });
+    }
 
     function cdFilterStatus(status, btn) {
       cdStatusFilter = status;
       document.querySelectorAll('.cd-chip-btn').forEach(b => b.classList.remove('active'));
       if (btn) btn.classList.add('active');
-      cdApplyFilters();
+      cdRenderTable();
+    }
+
+    function cdFilterDecision(val) {
+      cdDecisionFilter = val;
+      cdRenderTable();
+    }
+
+    function cdToggleOnlyRisk(checked) {
+      cdOnlyRisk = checked;
+      cdRenderTable();
     }
 
     function cdFilter(q) {
       cdSearchQuery = (q || '').toLowerCase();
-      cdApplyFilters();
-    }
-
-    function cdApplyFilters() {
-      document.querySelectorAll('#cd-tbody tr').forEach((tr, i) => {
-        const r = cdRows[i];
-        const matchStatus = (cdStatusFilter === 'all' || r.status === cdStatusFilter);
-        const matchSearch = !cdSearchQuery || r.vor.toLowerCase().includes(cdSearchQuery) || r.lsr.toLowerCase().includes(cdSearchQuery) || r.code.toLowerCase().includes(cdSearchQuery);
-        tr.style.display = (matchStatus && matchSearch) ? '' : 'none';
-      });
+      cdRenderTable();
     }
 
     // Клавиатурные шорткаты для сметчика: Esc, y, n
