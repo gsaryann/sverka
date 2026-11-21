@@ -22,17 +22,17 @@ import webbrowser
 from pathlib import Path
 from typing import List, Dict, Any
 
-from flask import Flask, request, jsonify, Response, stream_with_context, session
-from sqlalchemy import desc
-from db import SessionLocal, User, Project, AuditItem
-
-logger = logging.getLogger(__name__)
-
-# Автоматическое подключение корневой папки проекта в sys.path
+# Автоматическое подключение корневой папки проекта в sys.path ДО любых локальных импортов
 WEB_DIR = Path(__file__).resolve().parent
 ROOT_DIR = WEB_DIR.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
+
+from flask import Flask, request, jsonify, Response, stream_with_context, session
+from sqlalchemy import desc
+from db import SessionLocal, User, Project, AuditItem, init_db
+
+logger = logging.getLogger(__name__)
 
 from parsers import parse_vor, parse_lsr, get_parse_warnings, Item
 
