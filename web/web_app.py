@@ -47,11 +47,24 @@ def _document_kind(path: Path) -> str | None:
     finally:
         wb.close()
     blob = ' '.join(text)
-    vor = sum(bool(re.search(p, blob)) for p in (r'ведомост\w* объем\w* работ', r'\bвор\b', r'формула расчета объемов работ'))
-    lsr = sum(bool(re.search(p, blob)) for p in (r'локальн\w* смет\w* расчет', r'\bлср\b', r'обоснование'))
-    if vor == lsr:
+    cleaned_blob = re.sub(r'№\s*(?:в\s*)?лср', '', blob)
+
+    vor_score = 0
+    if re.search(r'ведомост\w* объем\w* работ', blob): vor_score += 2
+    if re.search(r'дефектн\w* ведомост\w*', blob): vor_score += 2
+    if re.search(r'формула расчета объемов работ', blob): vor_score += 2
+    if re.search(r'\bвор\b', blob): vor_score += 1
+
+    lsr_score = 0
+    if re.search(r'локальн\w* смет\w* расчет', blob): lsr_score += 2
+    if re.search(r'локальная смета', blob): lsr_score += 2
+    if re.search(r'сметная стоимость', blob): lsr_score += 2
+    if re.search(r'составлен\w* в ценах', blob): lsr_score += 1
+    if re.search(r'\bлср\b', cleaned_blob): lsr_score += 1
+
+    if vor_score == lsr_score:
         return None
-    return 'vor' if vor > lsr else 'lsr'
+    return 'vor' if vor_score > lsr_score else 'lsr'
 
 
 def _validate_document_pair(vor_path: Path, lsr_path: Path) -> str | None:
@@ -63,8 +76,6 @@ def _validate_document_pair(vor_path: Path, lsr_path: Path) -> str | None:
         return f'В оба поля загружены документы типа {label}. Для сверки нужны одна ВОР и одна ЛСР.'
     if kind_v == 'lsr' and kind_l == 'vor':
         return 'Файлы, похоже, перепутаны: в поле ВОР загружена ЛСР, а в поле ЛСР — ВОР. Поменяйте их местами и запустите сверку снова.'
-    if kind_v != 'vor' or kind_l != 'lsr':
-        return 'Не удалось подтвердить типы файлов: в поле ВОР загрузите ведомость объёмов работ, а в поле ЛСР — локальный сметный расчёт.'
     return None
 import match
 import baseline_legacy

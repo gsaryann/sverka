@@ -224,6 +224,40 @@ class TestMatching(unittest.TestCase):
         self.assertEqual(ratio, 0.0)
 
 
+class TestDocumentUploadValidation(unittest.TestCase):
+    """Тесты классификации типов загружаемых книг и валидации пар ВОР/ЛСР."""
+
+    def test_all_sample_pairs_pass_validation(self):
+        from web.web_app import _document_kind, _validate_document_pair
+        from pathlib import Path
+        data_dir = Path("data")
+        pairs = [
+            ("ВОР.xlsx", "ЛСР.xlsx"),
+            ("ВОР освещение КОРР.xlsx", "ЛСР освещение КОРР.xlsx"),
+            ("ВОР (1 этаж кабинеты).xlsx", "ЛСР (1 этаж кабинеты).xlsx"),
+            ("ВЕДОМОСТЬ ОБЪЕМОВ РАБОТ.xlsx", "ЛОКАЛЬНЫЙ СМЕТНЫЙ РАСЧЕТ.xlsx"),
+            ("Приложение №2.3.1 Ведомость объемов работ №2.xlsx", "Приложение №2.3 Локальный сметный расчет №2.xlsx"),
+            ("02_01_01_чайная_Анастасьевка__Текущий_ремонт___Дефектная_ведомость_по_смете_2.xlsx", "02_01_01_чайная_Анастасьевка__Текущий_ремонт___ЛСР_по_Методике_2020__РИМ__2.xlsx")
+        ]
+        for v_name, l_name in pairs:
+            vp, lp = data_dir / v_name, data_dir / l_name
+            if vp.exists() and lp.exists():
+                err = _validate_document_pair(vp, lp)
+                self.assertIsNone(err, f"Пара {v_name} + {l_name} ошибочно заблокирована: {err}")
+
+    def test_guard_catches_swapped_and_duplicate_files(self):
+        from web.web_app import _validate_document_pair
+        from pathlib import Path
+        data_dir = Path("data")
+        vp = data_dir / "ВОР.xlsx"
+        lp = data_dir / "ЛСР.xlsx"
+        if vp.exists() and lp.exists():
+            # 1. Тот же файл в обоих полях
+            self.assertIn("один и тот же файл", _validate_document_pair(vp, vp))
+            # 2. Файлы перепутаны местами
+            self.assertIn("перепутаны", _validate_document_pair(lp, vp))
+
+
 class TestEvaluationAndPerturb(unittest.TestCase):
     """Тесты проверочного контура и расчета метрик."""
 
