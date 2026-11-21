@@ -1,11 +1,13 @@
 """
 Тесты безопасности и бизнес-логики модуля авторизации и работы с PostgreSQL.
-Проверяют хэширование паролей, защиту от дубликатов, корректность сессий,
-полное соответствие 5 сущностям ER-диаграммы (USERS, AUDIT_PROJECTS, DOCUMENTS, MATCH_RESULTS, LLM_LOGS)
-и каскадное удаление (Foreign Key Cascade).
+Проверяют хэширование паролей, защиту от дубликатов (включая регистронезависимый email),
+точность типов Numeric(14,2) и Numeric(14,3), CHECK-ограничения,
+связь LLM_LOGS с MATCH_RESULTS и каскадное удаление.
 """
 
 import unittest
+from decimal import Decimal
+from sqlalchemy.exc import IntegrityError
 from db import (
     SessionLocal, User, AuditProject, Project,
     Document, MatchResult, AuditItem, LLMLog, init_db
@@ -26,7 +28,7 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session.query(Document).delete()
         self.session.query(MatchResult).delete()
         self.session.query(AuditProject).delete()
-        self.session.query(User).filter(User.email.like("test_%@sverkasmet.ru")).delete()
+        self.session.query(User).filter(User.email.ilike("test_%@sverkasmet.ru")).delete()
         self.session.commit()
         self.session.close()
 
@@ -51,6 +53,21 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.assertTrue(db_user.check_password(raw_password))
         self.assertFalse(db_user.check_password("WrongPassword123!"))
 
+    def test_case_insensitive_email_uniqueness(self):
+        """Email должен быть уникальным независимо от регистра (lower(email))."""
+        u1 = User(email="test_case@sverkasmet.ru", full_name="User 1", role="estimator")
+        u1.set_password("Pass123!")
+        self.session.add(u1)
+        self.session.commit()
+
+        # Попытка создать пользователя с тем же email в ВЕРХНЕМ регистре
+        u2 = User(email="TEST_CASE@SVERKASMET.RU", full_name="User 2", role="estimator")
+        u2.set_password("Pass123!")
+        self.session.add(u2)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+        self.session.rollback()
+
     def test_project_and_audit_history_persistence(self):
         """Проект и строки аудита должны надежно сохраняться в PostgreSQL и быть связаны с пользователем."""
         user = User(
@@ -70,12 +87,12 @@ class TestAuthAndSecurity(unittest.TestCase):
             total_positions=86,
             matched_count=71,
             discrepancy_count=15,
-            total_financial_risk=129500.0
+            total_financial_risk=Decimal("129500.50")
         )
         self.session.add(project)
         self.session.commit()
 
-        # Добавляем строку аудита с финансовым риском
+        # Добавляем строку аудита с финансовым риском и точным сметным объемом
         item = AuditItem(
             project_id=project.id,
             row_num=1,
@@ -84,14 +101,14 @@ class TestAuthAndSecurity(unittest.TestCase):
             vor_name="Монтаж Контроллера радиоканальных устройств",
             lsr_name="Устройства промежуточные на количество лучей: 1",
             code="ГЭСНм10-08-001-13",
-            qty_vor=1.0,
-            qty_lsr=8.0,
+            qty_vor=Decimal("1.000"),
+            qty_lsr=Decimal("8.000"),
             unit="шт",
-            unit_price=18500.0,
-            financial_risk=129500.0,
+            unit_price=Decimal("18500.25"),
+            financial_risk=Decimal("129500.50"),
             status="diff",
             detail_class="Расхождение объёма",
-            similarity=0.14,
+            similarity=Decimal("0.1427"),
             is_ai=True,
             explanation="Пару выбрала Алиса. Объём в смете 8 шт против 1 шт в проекте.",
             user_decision="yes"
@@ -99,14 +116,15 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session.add(item)
         self.session.commit()
 
-        # Проверяем целостность и связи (Foreign Key)
+        # Проверяем целостность и точность Numeric
         saved_proj = self.session.query(Project).filter_by(id=project.id).first()
         self.assertEqual(len(saved_proj.items), 1)
-        self.assertEqual(saved_proj.items[0].financial_risk, 129500.0)
+        self.assertEqual(float(saved_proj.items[0].financial_risk), 129500.50)
+        self.assertEqual(float(saved_proj.items[0].unit_price), 18500.25)
         self.assertEqual(saved_proj.user.email, "test_lead@sverkasmet.ru")
 
     def test_full_er_schema_and_cascade_delete(self):
-        """Полная проверка всех 5 таблиц из ER-диаграммы и каскадного удаления."""
+        """Полная проверка всех 5 таблиц из ER-диаграммы, внешних ключей и каскадного удаления."""
         user = User(
             email="test_er@sverkasmet.ru",
             full_name="Инженер Экспертизы",
@@ -121,7 +139,7 @@ class TestAuthAndSecurity(unittest.TestCase):
             user_id=user.id,
             title="Капитальный ремонт кровли",
             status="completed",
-            match_rate=92.5,
+            match_rate=Decimal("92.50"),
             total_positions=40
         )
         self.session.add(project)
@@ -145,29 +163,32 @@ class TestAuthAndSecurity(unittest.TestCase):
         # 3. MATCH_RESULTS (с точными полями из ER-диаграммы)
         match_item = MatchResult(
             project_id=project.id,
+            row_num=1,
             vor_num="1.1",
             lsr_num="12",
             upper_status="diff",
             detail_class="Расхождение объёма",
-            text_sim=0.88,
-            qty_vor=120.0,
-            qty_lsr=150.0,
-            unit_price=450.0,
-            financial_risk=13500.0,
+            text_sim=Decimal("0.8800"),
+            qty_vor=Decimal("120.500"),
+            qty_lsr=Decimal("150.500"),
+            unit_price=Decimal("450.00"),
+            financial_risk=Decimal("13500.00"),
             formulation_warn=False,
             user_decision="yes"
         )
         self.session.add(match_item)
+        self.session.flush()
 
-        # 4. LLM_LOGS (арбитраж нейросети)
+        # 4. LLM_LOGS (арбитраж нейросети с привязкой к match_result_id)
         llm_entry = LLMLog(
             project_id=project.id,
+            match_result_id=match_item.id,
             vor_name="Устройство пароизоляции в один слой",
             decision="Устройство пароизоляции оклеечной",
-            confidence=0.91,
+            confidence=Decimal("0.9100"),
             prompt_tokens=420,
             completion_tokens=65,
-            cost_rub=0.18
+            cost_rub=Decimal("0.18")
         )
         self.session.add(llm_entry)
         self.session.commit()
@@ -181,10 +202,11 @@ class TestAuthAndSecurity(unittest.TestCase):
 
         self.assertEqual(saved_proj.documents[0].doc_type, "VOR")
         self.assertEqual(saved_proj.documents[1].filename, "ЛСР_кровля.xlsx")
-        self.assertEqual(saved_proj.match_results[0].financial_risk, 13500.0)
+        self.assertEqual(float(saved_proj.match_results[0].financial_risk), 13500.0)
         self.assertEqual(saved_proj.match_results[0].upper_status, "diff")
         self.assertEqual(saved_proj.llm_logs[0].prompt_tokens, 420)
-        self.assertEqual(saved_proj.llm_logs[0].cost_rub, 0.18)
+        self.assertEqual(float(saved_proj.llm_logs[0].cost_rub), 0.18)
+        self.assertEqual(saved_proj.llm_logs[0].match_result_id, match_item.id)
 
         # Проверка каскадного удаления: удаление проекта должно удалить все связанные записи
         proj_id = project.id

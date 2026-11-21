@@ -30,15 +30,21 @@ CREATE TABLE public.audit_projects (
     user_id integer,
     title character varying(255) NOT NULL,
     status character varying(50) NOT NULL,
-    match_rate double precision,
-    total_positions integer,
-    created_at timestamp without time zone,
+    match_rate numeric(5,2) NOT NULL,
+    total_positions integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
     object_name character varying(255),
     vor_filename character varying(255),
     lsr_filename character varying(255),
-    matched_count integer,
-    discrepancy_count integer,
-    total_financial_risk double precision
+    matched_count integer NOT NULL,
+    discrepancy_count integer NOT NULL,
+    total_financial_risk numeric(14,2) NOT NULL,
+    CONSTRAINT check_project_discrepancy_count CHECK ((discrepancy_count >= 0)),
+    CONSTRAINT check_project_match_rate CHECK (((match_rate >= (0)::numeric) AND (match_rate <= (100)::numeric))),
+    CONSTRAINT check_project_matched_count CHECK ((matched_count >= 0)),
+    CONSTRAINT check_project_status CHECK (((status)::text = ANY ((ARRAY['completed'::character varying, 'processing'::character varying, 'draft'::character varying, 'archived'::character varying])::text[]))),
+    CONSTRAINT check_project_total_financial_risk CHECK ((total_financial_risk >= (0)::numeric)),
+    CONSTRAINT check_project_total_positions CHECK ((total_positions >= 0))
 );
 
 
@@ -71,8 +77,10 @@ CREATE TABLE public.documents (
     project_id integer NOT NULL,
     doc_type character varying(50) NOT NULL,
     filename character varying(255) NOT NULL,
-    row_count integer,
-    uploaded_at timestamp without time zone
+    row_count integer NOT NULL,
+    uploaded_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT check_doc_row_count CHECK ((row_count >= 0)),
+    CONSTRAINT check_doc_type CHECK (((doc_type)::text = ANY ((ARRAY['VOR'::character varying, 'LSR'::character varying, 'ACT'::character varying, 'DOC'::character varying])::text[])))
 );
 
 
@@ -101,15 +109,20 @@ ALTER SEQUENCE public.documents_id_seq OWNED BY public.documents.id;
 --
 
 CREATE TABLE public.llm_logs (
-    id integer NOT NULL,
+    id bigint NOT NULL,
     project_id integer NOT NULL,
+    match_result_id bigint,
     vor_name text NOT NULL,
     decision character varying(100) NOT NULL,
-    confidence double precision,
-    prompt_tokens integer,
-    completion_tokens integer,
-    cost_rub double precision,
-    created_at timestamp without time zone
+    confidence numeric(5,4) NOT NULL,
+    prompt_tokens integer NOT NULL,
+    completion_tokens integer NOT NULL,
+    cost_rub numeric(14,2) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT check_llm_completion_tokens CHECK ((completion_tokens >= 0)),
+    CONSTRAINT check_llm_confidence CHECK (((confidence >= (0)::numeric) AND (confidence <= 1.0))),
+    CONSTRAINT check_llm_cost_rub CHECK ((cost_rub >= (0)::numeric)),
+    CONSTRAINT check_llm_prompt_tokens CHECK ((prompt_tokens >= 0))
 );
 
 
@@ -118,7 +131,6 @@ CREATE TABLE public.llm_logs (
 --
 
 CREATE SEQUENCE public.llm_logs_id_seq
-    AS integer
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -138,26 +150,31 @@ ALTER SEQUENCE public.llm_logs_id_seq OWNED BY public.llm_logs.id;
 --
 
 CREATE TABLE public.match_results (
-    id integer NOT NULL,
+    id bigint NOT NULL,
     project_id integer NOT NULL,
     vor_num character varying(50),
     lsr_num character varying(50),
     upper_status character varying(50) NOT NULL,
     detail_class character varying(100),
-    text_sim double precision,
-    qty_vor double precision,
-    qty_lsr double precision,
-    unit_price double precision,
-    financial_risk double precision,
-    formulation_warn boolean,
+    text_sim numeric(5,4) NOT NULL,
+    qty_vor numeric(14,3),
+    qty_lsr numeric(14,3),
+    unit_price numeric(14,2) NOT NULL,
+    financial_risk numeric(14,2) NOT NULL,
+    formulation_warn boolean NOT NULL,
     user_decision character varying(50),
-    row_num integer,
+    row_num integer NOT NULL,
     vor_name text NOT NULL,
     lsr_name text,
     code character varying(100),
     unit character varying(50),
-    is_ai boolean,
-    explanation text
+    is_ai boolean NOT NULL,
+    explanation text,
+    CONSTRAINT check_match_financial_risk CHECK ((financial_risk >= (0)::numeric)),
+    CONSTRAINT check_match_text_sim CHECK (((text_sim >= (0)::numeric) AND (text_sim <= 1.0))),
+    CONSTRAINT check_match_unit_price CHECK ((unit_price >= (0)::numeric)),
+    CONSTRAINT check_match_upper_status CHECK (((upper_status)::text = ANY ((ARRAY['ok'::character varying, 'part'::character varying, 'diff'::character varying, 'none'::character varying])::text[]))),
+    CONSTRAINT check_match_user_decision CHECK ((((user_decision)::text = ANY ((ARRAY['yes'::character varying, 'no'::character varying])::text[])) OR (user_decision IS NULL)))
 );
 
 
@@ -166,7 +183,6 @@ CREATE TABLE public.match_results (
 --
 
 CREATE SEQUENCE public.match_results_id_seq
-    AS integer
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -192,7 +208,8 @@ CREATE TABLE public.users (
     full_name character varying(150) NOT NULL,
     role character varying(50) NOT NULL,
     company character varying(150),
-    created_at timestamp without time zone
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT check_user_role CHECK (((role)::text = ANY ((ARRAY['estimator'::character varying, 'lead'::character varying, 'admin'::character varying])::text[])))
 );
 
 
@@ -292,10 +309,10 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: ix_audit_projects_id; Type: INDEX; Schema: public; Owner: -
+-- Name: ix_audit_projects_user_created; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX ix_audit_projects_id ON public.audit_projects USING btree (id);
+CREATE INDEX ix_audit_projects_user_created ON public.audit_projects USING btree (user_id, created_at DESC);
 
 
 --
@@ -306,13 +323,6 @@ CREATE INDEX ix_audit_projects_user_id ON public.audit_projects USING btree (use
 
 
 --
--- Name: ix_documents_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_documents_id ON public.documents USING btree (id);
-
-
---
 -- Name: ix_documents_project_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -320,10 +330,17 @@ CREATE INDEX ix_documents_project_id ON public.documents USING btree (project_id
 
 
 --
--- Name: ix_llm_logs_id; Type: INDEX; Schema: public; Owner: -
+-- Name: ix_llm_logs_match_result_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX ix_llm_logs_id ON public.llm_logs USING btree (id);
+CREATE INDEX ix_llm_logs_match_result_id ON public.llm_logs USING btree (match_result_id);
+
+
+--
+-- Name: ix_llm_logs_proj_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_llm_logs_proj_created ON public.llm_logs USING btree (project_id, created_at);
 
 
 --
@@ -334,10 +351,10 @@ CREATE INDEX ix_llm_logs_project_id ON public.llm_logs USING btree (project_id);
 
 
 --
--- Name: ix_match_results_id; Type: INDEX; Schema: public; Owner: -
+-- Name: ix_match_results_proj_status; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX ix_match_results_id ON public.match_results USING btree (id);
+CREATE INDEX ix_match_results_proj_status ON public.match_results USING btree (project_id, upper_status);
 
 
 --
@@ -348,17 +365,17 @@ CREATE INDEX ix_match_results_project_id ON public.match_results USING btree (pr
 
 
 --
--- Name: ix_users_email; Type: INDEX; Schema: public; Owner: -
+-- Name: ix_users_email_lower; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX ix_users_email ON public.users USING btree (email);
+CREATE UNIQUE INDEX ix_users_email_lower ON public.users USING btree (lower((email)::text));
 
 
 --
--- Name: ix_users_id; Type: INDEX; Schema: public; Owner: -
+-- Name: ux_match_results_proj_row; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX ix_users_id ON public.users USING btree (id);
+CREATE UNIQUE INDEX ux_match_results_proj_row ON public.match_results USING btree (project_id, row_num);
 
 
 --
@@ -366,7 +383,7 @@ CREATE INDEX ix_users_id ON public.users USING btree (id);
 --
 
 ALTER TABLE ONLY public.audit_projects
-    ADD CONSTRAINT audit_projects_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+    ADD CONSTRAINT audit_projects_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -375,6 +392,14 @@ ALTER TABLE ONLY public.audit_projects
 
 ALTER TABLE ONLY public.documents
     ADD CONSTRAINT documents_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.audit_projects(id) ON DELETE CASCADE;
+
+
+--
+-- Name: llm_logs llm_logs_match_result_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.llm_logs
+    ADD CONSTRAINT llm_logs_match_result_id_fkey FOREIGN KEY (match_result_id) REFERENCES public.match_results(id) ON DELETE CASCADE;
 
 
 --

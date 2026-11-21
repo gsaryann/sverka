@@ -947,11 +947,13 @@ def api_project_save():
                 user_decision=item.get('decision')
             )
             db_sess.add(audit_item)
+            db_sess.flush()
 
             # Если позиция обрабатывалась ИИ-арбитром, фиксируем в LLM_LOGS
             if is_ai_item:
                 db_sess.add(LLMLog(
                     project_id=project.id,
+                    match_result_id=audit_item.id,
                     vor_name=item.get('vor', ''),
                     decision=item.get('lsr', '') or item.get('detail_class', 'Арбитраж'),
                     confidence=sim_val,

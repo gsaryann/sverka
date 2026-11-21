@@ -1,21 +1,22 @@
 """
 Модуль базы данных PostgreSQL 17 для системы «СверкаСмет».
-Обеспечивает полную реализацию ER-диаграммы платформы:
-- USERS (пользователи и роли)
-- AUDIT_PROJECTS (проекты аудита смет)
-- DOCUMENTS (исходные документы: ВОР, ЛСР и др.)
-- MATCH_RESULTS (результаты сопоставления позиций, риски и решения сметчика)
-- LLM_LOGS (журнал арбитража ИИ, токены и финансовые затраты)
+Обеспечивает промышленную реализацию ER-диаграммы платформы с учетом строгих финансовых
+и нормативных требований:
+- USERS (пользователи, роли, регистронезависимый email, timestamptz)
+- AUDIT_PROJECTS (проекты аудита смет, агрегаты-кэш, CHECK-ограничения)
+- DOCUMENTS (исходные документы: ВОР, ЛСР и др., timestamptz)
+- MATCH_RESULTS (BigInteger, Numeric(14,3) для объемов, Numeric(14,2) для денег, CHECK, индексы)
+- LLM_LOGS (BigInteger, связь с match_results, токены, затраты в рублях)
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, Boolean,
-    DateTime, Text, ForeignKey, desc, text
+    create_engine, Column, Integer, BigInteger, String, Numeric, Boolean,
+    DateTime, Text, ForeignKey, desc, text, CheckConstraint, Index
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
 
@@ -54,13 +55,18 @@ class User(Base):
     """Сущность USERS из ER-диаграммы."""
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String(120), unique=True, nullable=False, index=True)
+    id = Column(Integer, primary_key=True)
+    email = Column(String(120), nullable=False)
     password_hash = Column(String(256), nullable=False)
     full_name = Column(String(150), nullable=False)
     role = Column(String(50), default="estimator", nullable=False)  # estimator, lead, admin
     company = Column(String(150), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("role IN ('estimator', 'lead', 'admin')", name="check_user_role"),
+        Index("ix_users_email_lower", text("lower(email)"), unique=True),
+    )
 
     projects = relationship("AuditProject", back_populates="user", cascade="all, delete-orphan")
 
@@ -85,21 +91,31 @@ class AuditProject(Base):
     """Сущность AUDIT_PROJECTS из ER-диаграммы (создаётся пользователем)."""
     __tablename__ = "audit_projects"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     title = Column(String(255), nullable=False)
     status = Column(String(50), default="completed", nullable=False)
-    match_rate = Column(Float, default=0.0)
-    total_positions = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    match_rate = Column(Numeric(5, 2), default=0.0, nullable=False)  # 0.00 .. 100.00 %
+    total_positions = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
-    # Дополнительные поля для обратной совместимости с существующим веб-интерфейсом
+    # Денормализованные материализованные агрегаты-кэш для мгновенной выборки списков проектов
     object_name = Column(String(255), nullable=True)
     vor_filename = Column(String(255), nullable=True)
     lsr_filename = Column(String(255), nullable=True)
-    matched_count = Column(Integer, default=0)
-    discrepancy_count = Column(Integer, default=0)
-    total_financial_risk = Column(Float, default=0.0)
+    matched_count = Column(Integer, default=0, nullable=False)
+    discrepancy_count = Column(Integer, default=0, nullable=False)
+    total_financial_risk = Column(Numeric(14, 2), default=0.0, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('completed', 'processing', 'draft', 'archived')", name="check_project_status"),
+        CheckConstraint("match_rate >= 0 AND match_rate <= 100", name="check_project_match_rate"),
+        CheckConstraint("total_positions >= 0", name="check_project_total_positions"),
+        CheckConstraint("matched_count >= 0", name="check_project_matched_count"),
+        CheckConstraint("discrepancy_count >= 0", name="check_project_discrepancy_count"),
+        CheckConstraint("total_financial_risk >= 0", name="check_project_total_financial_risk"),
+        Index("ix_audit_projects_user_created", "user_id", desc("created_at")),
+    )
 
     # Связи 1-ко-многим согласно ER-диаграмме
     user = relationship("User", back_populates="projects")
@@ -119,18 +135,22 @@ class AuditProject(Base):
         return self.match_results
 
     def to_dict(self):
+        mr = float(self.match_rate) if self.match_rate is not None else 0.0
+        if mr == 0.0 and self.total_positions:
+            mr = round(self.matched_count / self.total_positions * 100, 1)
+
         return {
             "id": self.id,
             "title": self.title,
             "object_name": self.object_name or self.title,
             "status": self.status,
-            "match_rate": self.match_rate or (round(self.matched_count / self.total_positions * 100, 1) if self.total_positions else 0.0),
+            "match_rate": mr,
             "vor_filename": self.vor_filename,
             "lsr_filename": self.lsr_filename,
             "total_positions": self.total_positions,
             "matched_count": self.matched_count,
             "discrepancy_count": self.discrepancy_count,
-            "total_financial_risk": self.total_financial_risk,
+            "total_financial_risk": float(self.total_financial_risk or 0.0),
             "created_at": self.created_at.strftime("%d.%m.%Y %H:%M") if self.created_at else ""
         }
 
@@ -139,12 +159,17 @@ class Document(Base):
     """Сущность DOCUMENTS из ER-диаграммы (содержится в проекте аудита)."""
     __tablename__ = "documents"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     project_id = Column(Integer, ForeignKey("audit_projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    doc_type = Column(String(50), nullable=False)  # "VOR", "LSR"
+    doc_type = Column(String(50), nullable=False)  # "VOR", "LSR", "ACT", "DOC"
     filename = Column(String(255), nullable=False)
-    row_count = Column(Integer, default=0)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    row_count = Column(Integer, default=0, nullable=False)
+    uploaded_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("doc_type IN ('VOR', 'LSR', 'ACT', 'DOC')", name="check_doc_type"),
+        CheckConstraint("row_count >= 0", name="check_doc_row_count"),
+    )
 
     project = relationship("AuditProject", back_populates="documents")
 
@@ -163,30 +188,41 @@ class MatchResult(Base):
     """Сущность MATCH_RESULTS из ER-диаграммы (формируется проектом аудита)."""
     __tablename__ = "match_results"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
     project_id = Column(Integer, ForeignKey("audit_projects.id", ondelete="CASCADE"), nullable=False, index=True)
     vor_num = Column(String(50), nullable=True)
     lsr_num = Column(String(50), nullable=True)
     upper_status = Column(String(50), nullable=False)  # ok, part, diff, none
     detail_class = Column(String(100), nullable=True)  # Расхождение объёма, Точное совпадение, etc.
-    text_sim = Column(Float, default=0.0)
-    qty_vor = Column(Float, nullable=True)
-    qty_lsr = Column(Float, nullable=True)
-    unit_price = Column(Float, nullable=True)
-    financial_risk = Column(Float, default=0.0)
-    formulation_warn = Column(Boolean, default=False)
+    text_sim = Column(Numeric(5, 4), default=0.0, nullable=False)  # 0.0000 .. 1.0000
+    qty_vor = Column(Numeric(14, 3), nullable=True)  # Сметные объемы: 3 знака после запятой
+    qty_lsr = Column(Numeric(14, 3), nullable=True)
+    unit_price = Column(Numeric(14, 2), default=0.0, nullable=False)  # Деньги: 2 знака (копейки)
+    financial_risk = Column(Numeric(14, 2), default=0.0, nullable=False)
+    formulation_warn = Column(Boolean, default=False, nullable=False)
     user_decision = Column(String(50), nullable=True)  # 'yes', 'no', None
 
     # Дополнительные поля для отображения и обратной совместимости
-    row_num = Column(Integer, default=1)
+    row_num = Column(Integer, default=1, nullable=False)
     vor_name = Column(Text, nullable=False, default="")
     lsr_name = Column(Text, nullable=True)
     code = Column(String(100), nullable=True)
     unit = Column(String(50), nullable=True)
-    is_ai = Column(Boolean, default=False)
+    is_ai = Column(Boolean, default=False, nullable=False)
     explanation = Column(Text, nullable=True)
 
+    __table_args__ = (
+        CheckConstraint("upper_status IN ('ok', 'part', 'diff', 'none')", name="check_match_upper_status"),
+        CheckConstraint("user_decision IN ('yes', 'no') OR user_decision IS NULL", name="check_match_user_decision"),
+        CheckConstraint("text_sim >= 0 AND text_sim <= 1.0", name="check_match_text_sim"),
+        CheckConstraint("unit_price >= 0", name="check_match_unit_price"),
+        CheckConstraint("financial_risk >= 0", name="check_match_financial_risk"),
+        Index("ix_match_results_proj_status", "project_id", "upper_status"),
+        Index("ux_match_results_proj_row", "project_id", "row_num", unique=True),
+    )
+
     project = relationship("AuditProject", back_populates="match_results")
+    llm_logs = relationship("LLMLog", back_populates="match_result", cascade="all, delete-orphan")
 
     # Свойства для прозрачной совместимости со старыми вызовами
     @property
@@ -199,13 +235,14 @@ class MatchResult(Base):
 
     @property
     def similarity(self):
-        return self.text_sim
+        return float(self.text_sim) if self.text_sim is not None else 0.0
 
     @similarity.setter
     def similarity(self, val):
         self.text_sim = val
 
     def to_dict(self):
+        sim_val = float(self.text_sim) if self.text_sim is not None else 0.0
         return {
             "id": self.id,
             "n": self.row_num,
@@ -214,15 +251,15 @@ class MatchResult(Base):
             "vor": self.vor_name,
             "lsr": self.lsr_name or "",
             "code": self.code or "",
-            "vv": self.qty_vor,
-            "lv": self.qty_lsr,
+            "vv": float(self.qty_vor) if self.qty_vor is not None else None,
+            "lv": float(self.qty_lsr) if self.qty_lsr is not None else None,
             "u": self.unit or "",
-            "pr": self.unit_price or 0.0,
-            "risk": self.financial_risk,
+            "pr": float(self.unit_price or 0.0),
+            "risk": float(self.financial_risk or 0.0),
             "s": self.upper_status,
             "detail_class": self.detail_class or "",
-            "sim": round((self.text_sim or 0.0) * 100),
-            "text_sim": self.text_sim or 0.0,
+            "sim": round(sim_val * 100),
+            "text_sim": sim_val,
             "ai": self.is_ai,
             "note": self.explanation or "",
             "formulation_warn": self.formulation_warn,
@@ -234,28 +271,39 @@ class LLMLog(Base):
     """Сущность LLM_LOGS из ER-диаграммы (фиксирует вызовы нейросети в проекте)."""
     __tablename__ = "llm_logs"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
     project_id = Column(Integer, ForeignKey("audit_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    match_result_id = Column(BigInteger, ForeignKey("match_results.id", ondelete="CASCADE"), nullable=True, index=True)
     vor_name = Column(Text, nullable=False)
     decision = Column(String(100), nullable=False)
-    confidence = Column(Float, default=0.0)
-    prompt_tokens = Column(Integer, default=0)
-    completion_tokens = Column(Integer, default=0)
-    cost_rub = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    confidence = Column(Numeric(5, 4), default=0.0, nullable=False)  # 0.0000 .. 1.0000
+    prompt_tokens = Column(Integer, default=0, nullable=False)
+    completion_tokens = Column(Integer, default=0, nullable=False)
+    cost_rub = Column(Numeric(14, 2), default=0.0, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("confidence >= 0 AND confidence <= 1.0", name="check_llm_confidence"),
+        CheckConstraint("prompt_tokens >= 0", name="check_llm_prompt_tokens"),
+        CheckConstraint("completion_tokens >= 0", name="check_llm_completion_tokens"),
+        CheckConstraint("cost_rub >= 0", name="check_llm_cost_rub"),
+        Index("ix_llm_logs_proj_created", "project_id", "created_at"),
+    )
 
     project = relationship("AuditProject", back_populates="llm_logs")
+    match_result = relationship("MatchResult", back_populates="llm_logs")
 
     def to_dict(self):
         return {
             "id": self.id,
             "project_id": self.project_id,
+            "match_result_id": self.match_result_id,
             "vor_name": self.vor_name,
             "decision": self.decision,
-            "confidence": self.confidence,
+            "confidence": float(self.confidence or 0.0),
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
-            "cost_rub": self.cost_rub,
+            "cost_rub": float(self.cost_rub or 0.0),
             "created_at": self.created_at.strftime("%d.%m.%Y %H:%M:%S") if self.created_at else ""
         }
 
@@ -266,12 +314,12 @@ AuditItem = MatchResult
 
 
 def init_db():
-    """Создание таблиц по ER-диаграмме и инициализация базовых данных."""
+    """Создание таблиц по промышленной ER-диаграмме и инициализация базовых данных."""
     Base.metadata.create_all(bind=engine)
 
     session = SessionLocal()
     try:
-        demo_user = session.query(User).filter_by(email="demo@sverkasmet.ru").first()
+        demo_user = session.query(User).filter(text("lower(email) = 'demo@sverkasmet.ru'")).first()
         if not demo_user:
             demo_user = User(
                 email="demo@sverkasmet.ru",
