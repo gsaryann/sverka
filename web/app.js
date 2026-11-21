@@ -21,9 +21,9 @@ let ROWS = [
 
 const LABEL = {
   ok: "Совпало",
-  part: "Частичное совпадение",
-  diff: "Расхождение объёма",
-  none: "Не найдено",
+  part: "Требует проверки",
+  diff: "Коллизия параметров",
+  none: "Нет в смете",
   rej: "Пара отклонена"
 };
 
@@ -31,9 +31,9 @@ const ORD = { none: 0, diff: 1, part: 2, ok: 3 };
 const CARDS = [
   ["all", "Всего позиций", "ink"],
   ["ok", "Совпало", "ok"],
-  ["part", "Частично совпало", "part"],
-  ["diff", "Расхождение", "diff"],
-  ["none", "Не найдено", "none"],
+  ["part", "Требует проверки", "part"],
+  ["diff", "Коллизии / Риски", "diff"],
+  ["none", "Нет в смете", "none"],
   ["need", "Ждут решения", "part"]
 ];
 
@@ -54,7 +54,28 @@ const money = n => (n < 0 ? "−" : n > 0 ? "+" : "") + fm(n) + " ₽";
 
 const rej = r => r.ai && S.dec[r.n] === "no";
 const es = r => rej(r) ? "none" : r.s;
-const lab = r => rej(r) ? LABEL.rej : (LABEL[r.s] || r.s);
+const lab = r => {
+  if (rej(r)) return LABEL.rej;
+  if (S.dec[r.n] === "yes") return "Принято сметчиком";
+  if (r.cls) {
+    if (r.cls === "Совпало") return "Совпало";
+    if (r.cls.includes("пересчет")) return "Пересчёт единиц";
+    if (r.cls.includes("Кандидат") || r.cls.includes("проверка")) {
+      return (r.vv != null && r.lv != null && r.vv === r.lv) ? "Проверка наименования" : "Требует проверки";
+    }
+    if (r.cls.includes("характеристик") || r.cls.includes("параметр")) return "Коллизия параметров";
+    if (r.cls.includes("объем") || r.cls.includes("объём")) return "Расхождение объёма";
+    if (r.cls.includes("единиц")) return "Несовпадение единиц";
+    if (r.cls.includes("Нет в") || r.cls.includes("Не найден")) return "Нет в смете";
+    if (r.cls.includes("Дубль")) return "Дубль в смете";
+    return r.cls;
+  }
+  // Запасной вывод по данным объёма и подобия
+  if (r.lv == null) return "Нет в смете";
+  if (r.vv !== r.lv) return "Расхождение объёма";
+  if (r.sim < 55) return "Проверка наименования";
+  return LABEL[r.s] || r.s;
+};
 const pend = r => r.s !== "ok" && !S.dec[r.n];
 const paired = r => es(r) !== "none" && r.lv != null;
 const dq = r => paired(r) ? (r.lv - r.vv) : -r.vv;
@@ -500,7 +521,13 @@ async function runCompare() {
   if (guard) { guard.style.display = 'none'; guard.textContent = ''; }
 
   if (!activePreset && (!fVor || !fLsr)) {
-    showToast('Пожалуйста, выберите оба файла Excel или нажмите один из готовых комплектов.', 'warning');
+    if (!fVor && !fLsr) {
+      showToast('Пожалуйста, выберите оба файла сметной документации (ВОР и ЛСР).', 'warning');
+    } else if (!fVor) {
+      showToast('Пожалуйста, выберите файл ведомости объёмов работ (ВОР).', 'warning');
+    } else {
+      showToast('Пожалуйста, выберите файл локального сметного расчёта (ЛСР).', 'warning');
+    }
     return;
   }
 
@@ -536,9 +563,13 @@ async function runCompare() {
     ROWS = (data.rows || []).map((r, idx) => {
       const cls = r['Исходный класс'] || r['Результат алгоритма'] || '';
       let s = 'diff';
-      if (cls === 'Совпало') s = 'ok';
-      else if (cls.includes('пересчет') || cls.includes('частичн')) s = 'part';
-      else if (cls.includes('Нет в')) s = 'none';
+      if (cls === 'Совпало') {
+        s = 'ok';
+      } else if (cls.includes('пересчет') || cls.includes('частичн') || cls.includes('Кандидат') || cls.includes('проверка')) {
+        s = 'part';
+      } else if (cls.includes('Нет в') || cls.includes('Не найден')) {
+        s = 'none';
+      }
 
       const vv = r['ВОР: количество'] != null && r['ВОР: количество'] !== '' ? parseFloat(r['ВОР: количество']) : null;
       const lv = r['ЛСР: количество'] != null && r['ЛСР: количество'] !== '' ? parseFloat(r['ЛСР: количество']) : null;
@@ -558,6 +589,7 @@ async function runCompare() {
         pr: pr,
         risk: risk,
         s: s,
+        cls: cls,
         sim: Math.round(parseFloat(r['Текстовое сходство'] || 0) * 100),
         ai: Boolean(r['Решение ИИ-арбитра'] && r['Решение ИИ-арбитра'] !== 'Не привлекался'),
         note: r['Причина решения и расхождения'] || r['Коллизия (неоднозначность)'] || ''
@@ -612,6 +644,7 @@ async function saveCurrentProjectToDB() {
       pr: r.pr,
       risk: r.risk,
       s: r.s,
+      detail_class: r.cls || '',
       sim: r.sim,
       ai: r.ai,
       note: r.note,
@@ -706,6 +739,7 @@ async function loadProjectFromDB(id) {
       pr: it.pr,
       risk: it.risk,
       s: it.s,
+      cls: it.detail_class || '',
       sim: it.sim,
       ai: it.ai,
       note: it.note

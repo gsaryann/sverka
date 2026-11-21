@@ -178,6 +178,12 @@ def favicon():
     return Response(fav_path.read_bytes(), mimetype="image/svg+xml")
 
 
+@app.route('/app_concepts')
+def app_concepts():
+    c_path = WEB_DIR / "app_concepts.html"
+    return Response(c_path.read_text(encoding="utf-8"), mimetype="text/html")
+
+
 @app.route('/concepts')
 def concepts():
     c_path = WEB_DIR / "landing_concepts.html"

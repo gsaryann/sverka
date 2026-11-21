@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Концепты интерфейса /app | СверкаСмет (SmartMatcher)</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    :root {
+      --bg: #EEF1F4;
+      --card: #FFFFFF;
+      --ink: #1F3A5F;
+      --ink-dark: #0E1B2D;
+      --text: #1D2733;
+      --mut: #5F6F84;
+      --line: #D3DAE3;
+      --line2: #AEBAC9;
+      --hdr: #E6EBF1;
+      --ok: #2F7D5B;
+      --part: #9A6A00;
+      --diff: #C2561B;
+      --bad: #B3382C;
+      --link: #1F5FBF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 13.5px/1.45 "Golos Text", system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      padding-bottom: 30px;
+    }
+    button, input, select { font-family: inherit; }
+
+    /* Верхняя панель переключения концептов */
+    .switcher-top {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: #0E1B2D;
+      color: #fff;
+      padding: 10px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .switcher-left {
+      font-size: 13.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .tag-badge {
+      background: #2563EB;
+      color: #fff;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .switcher-btns {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .sw-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #CBD5E1;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .sw-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+    .sw-btn.active {
+      background: #2563EB;
+      border-color: #3B82F6;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+    }
+
+    .concept-screen {
+      display: none;
+      max-width: 1560px;
+      margin: 0 auto;
+      padding: 16px 20px;
+      animation: fadeIn 0.15s ease-out;
+    }
+    .concept-screen.active {
+      display: block;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    /* Общие стили таблиц и бейджей */
+    .t-code { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      font-size: 11.5px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .b-ok { background: #E8F5E9; color: var(--ok); border: 1px solid #C8E6C9; }
+    .b-part { background: #FEF3C7; color: var(--part); border: 1px solid #FDE68A; }
+    .b-diff { background: #FFEDD5; color: var(--diff); border: 1px solid #FED7AA; }
+    .b-bad { background: #FEE2E2; color: var(--bad); border: 1px solid #FECACA; }
+    mark.df { background: #FFEDD5; color: #9A3412; padding: 0 3px; border-radius: 2px; font-weight: 700; }
+
+    .btn {
+      font-size: 12.5px;
+      padding: 5px 12px;
+      border-radius: 4px;
+      border: 1px solid var(--line2);
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .btn-ok { color: var(--ok); border-color: var(--ok); }
+    .btn-ok:hover { background: var(--ok); color: #fff; }
+    .btn-bad { color: var(--bad); border-color: var(--bad); }
+    .btn-bad:hover { background: var(--bad); color: #fff; }
+
+    /* ==========================================================================
+       КОНЦЕПТ A: НИЖНИЙ ИНСПЕКТОР (Bottom Drawer / Excel & CAD Style)
+       Таблица на 100% ширины экрана, ничего не сжато. Снизу удобная панель инспекции.
+       ========================================================================== */
+    .ca-topbar {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 16px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .ca-files {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .ca-f-pill {
+      background: var(--hdr);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+    .ca-stats {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .ca-stat-pill {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .ca-stat-pill.active {
+      border-color: var(--ink);
+      background: var(--hdr);
+      font-weight: 600;
+    }
+
+    .ca-table-wrap {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .ca-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .ca-table th {
+      background: var(--hdr);
+      padding: 8px 12px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--ink);
+      border-bottom: 1.5px solid var(--ink);
+      border-right: 1px solid var(--line);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .ca-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      vertical-align: middle;
+      cursor: pointer;
+    }
+    .ca-table tr:hover { background: #F1F5F9; }
+    .ca-table tr.active { background: #EBF3FF; font-weight: 500; }
+
+    /* Нижняя шторка инспектора параметров */
+    .ca-bottom-drawer {
+      background: #FFFFFF;
+      border: 1.5px solid var(--line2);
+      border-radius: 6px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(18, 34, 56, 0.15);
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 0.7fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .ca-b-col {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ca-b-col h4 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--mut);
+      margin-bottom: 4px;
+    }
+
+    /* ==========================================================================
+       КОНЦЕПТ B: ДВУХОКОННЫЙ СПЛИТ ВОР <-> ЛСР (Side-by-Side Dual Pane)
+       Слева колонка ВОР, справа колонка ЛСР. Идеально видно связку документов.
+       ========================================================================== */
+    .cb-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 16px;
+      margin-bottom: 12px;
+    }
+    .cb-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .cb-pane {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .cb-pane-hdr {
+      background: var(--hdr);
+      padding: 10px 14px;
+      border-bottom: 1.5px solid var(--ink);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .cb-list {
+      display: flex;
+      flex-direction: column;
+    }
+    .cb-item {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.1s ease;
+    }
+    .cb-item:hover { background: #F8FAFC; }
+    .cb-item.active { background: #EBF3FF; border-left: 3px solid var(--ink); font-weight: 500; }
+
+    /* ==========================================================================
+       КОНЦЕПТ C: УЛУЧШЕННЫЙ MASTER-DETAIL (Оптимизация оригинала Гагика)
+       Таблица слева, карточка справа. Но шапка сжата в 1 строку, кнопки быстрых
+       решений прямо в таблице, ничего не сминается.
+       ========================================================================== */
+    .cc-compact-header {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .cc-split {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(340px, 0.85fr);
+      gap: 12px;
+      align-items: start;
+    }
+    .cc-table-box {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .cc-panel-box {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      position: sticky;
+      top: 60px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Switcher Toolbar -->
+  <div class="switcher-top">
+    <div class="switcher-left">
+      <span class="tag-badge">Экран терминала /app</span>
+      <span>Сравнение 3 вариантов компоновки рабочего пространства:</span>
+    </div>
+    <div class="switcher-btns">
+      <button class="sw-btn active" onclick="setScreen('a')">
+        Вариант А: «Нижний инспектор» (Таблица на 100% ширины, как в Excel/CAD)
+      </button>
+      <button class="sw-btn" onclick="setScreen('b')">
+        Вариант B: «Двухоконный сплит ВОР ↔ ЛСР» (Документы бок о бок)
+      </button>
+      <button class="sw-btn" onclick="setScreen('c')">
+        Вариант C: «Плотный Master-Detail» (Оптимизация оригинала Гагика)
+      </button>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       ВАРИАНТ A: НИЖНИЙ ИНСПЕКТОР (Bottom Drawer / Excel & CAD Style)
+       ========================================================================== -->
+  <div id="screen-a" class="concept-screen active">
+    <!-- Ультракомпактный Topbar -->
+    <div class="ca-topbar">
+      <div class="ca-files">
+        <b>Проект: СПС и СОУЭ</b>
+        <span class="ca-f-pill">ВОР: 86 поз.</span>
+        <span class="ca-f-pill">ЛСР: 421/пр (94 поз.)</span>
+        <button class="btn btn-sm">📁 Загрузить другие файлы</button>
+      </div>
+
+      <div class="ca-stats">
+        <span class="ca-stat-pill active">Всего: <b>86</b></span>
+        <span class="ca-stat-pill" style="color:var(--ok);">✓ Совпало: <b>71</b></span>
+        <span class="ca-stat-pill" style="color:var(--part);">⚠️ Проверка: <b>5</b></span>
+        <span class="ca-stat-pill" style="color:var(--diff);">🚨 Коллизии: <b>3</b></span>
+        <span class="ca-stat-pill" style="color:var(--bad);">✕ Нет в смете: <b>7</b></span>
+        <span class="ca-stat-pill" style="background:#FFF7ED; color:#C2561B; font-weight:700;">Риск: 1 420 500 ₽</span>
+      </div>
+
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary">💾 Сохранить проект</button>
+        <button class="btn">📥 Экспорт отчёта</button>
+      </div>
+    </div>
+
+    <!-- Таблица на всю ширину (100%) -->
+    <div class="ca-table-wrap">
+      <table class="ca-table">
+        <thead>
+          <tr>
+            <th style="width:40px;">№</th>
+            <th>Позиция ВОР (проектная документация)</th>
+            <th>Позиция ЛСР (смета по Методике 421/пр)</th>
+            <th style="width:130px;">Шифр сметной нормы</th>
+            <th style="width:130px;">Объём: проект → смета</th>
+            <th style="width:160px;">Статус алгоритма</th>
+            <th style="width:90px;">Сходство</th>
+            <th style="width:120px;">Фин. риск</th>
+            <th style="width:120px; text-align:center;">Решение</th>
+          </tr>
+        </thead>
+        <tbody id="ca-tbody">
+          <tr class="active" onclick="caSelect(0, this)">
+            <td class="t-code">#1</td>
+            <td><b>Монтаж Контроллера радиоканальных устройств</b></td>
+            <td>Устройства промежуточные на количество лучей: 10</td>
+            <td class="t-code">ГЭСНм10-08-001-11</td>
+            <td>1 шт → 1 шт</td>
+            <td><span class="badge b-part">Проверка наименования</span></td>
+            <td><b class="t-code">14%</b></td>
+            <td><span style="color:var(--mut);">0 ₽</span></td>
+            <td style="text-align:center;" onclick="event.stopPropagation();">
+              <button class="btn btn-ok" style="padding:2px 8px;">✓</button>
+              <button class="btn btn-bad" style="padding:2px 8px;">✕</button>
+            </td>
+          </tr>
+          <tr onclick="caSelect(1, this)">
+            <td class="t-code">#2</td>
+            <td><b>Устройство стяжек ц/п толщ. 50мм</b></td>
+            <td>Устройство стяжек цементных толщ. 20мм</td>
+            <td class="t-code">ГЭСН11-01-011-01</td>
+            <td>420 м² → 4.2 (100 м²)</td>
+            <td><span class="badge b-diff">Коллизия параметров</span></td>
+            <td><b class="t-code">87%</b></td>
+            <td><b style="color:var(--diff);">+310 000 ₽</b></td>
+            <td style="text-align:center;" onclick="event.stopPropagation();">
+              <button class="btn btn-ok" style="padding:2px 8px;">✓</button>
+              <button class="btn btn-bad" style="padding:2px 8px;">✕</button>
+            </td>
+          </tr>
+          <tr onclick="caSelect(2, this)">
+            <td class="t-code">#3</td>
+            <td><b>Огнезащитная обработка воздуховодов систем вентиляции</b></td>
+            <td><span style="color:var(--bad);">[Отсутствует в смете подрядчика]</span></td>
+            <td class="t-code">—</td>
+            <td>350 м² → —</td>
+            <td><span class="badge b-bad">Нет в смете</span></td>
+            <td><b class="t-code">0%</b></td>
+            <td><b style="color:var(--bad);">+981 000 ₽</b></td>
+            <td style="text-align:center;" onclick="event.stopPropagation();">
+              <button class="btn btn-bad" style="padding:2px 8px;">✕ В акт</button>
+            </td>
+          </tr>
+          <tr onclick="caSelect(3, this)">
+            <td class="t-code">#4</td>
+            <td><b>Кабель огнестойкий КПСнг(А)-FRLS 2×2×0,5</b></td>
+            <td>Кабель КПСнг-FRLS 2×2×0,5</td>
+            <td class="t-code">ФССЦ-08.3.03</td>
+            <td>166 м → 1,66 (100 м)</td>
+            <td><span class="badge b-ok">Совпало</span></td>
+            <td><b class="t-code">99%</b></td>
+            <td><span style="color:var(--ok);">0 ₽ (OK)</span></td>
+            <td style="text-align:center;" onclick="event.stopPropagation();">
+              <span style="color:var(--ok); font-size:12px;">✓ Авто</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Инспекционная горизонтальная шторка (не сжимает таблицу) -->
+    <div class="ca-bottom-drawer">
+      <div class="ca-b-col">
+        <h4>Сравнение формулировок и параметров:</h4>
+        <div style="font-size:13.5px; line-height:1.45;">
+          <div><b>ВОР:</b> <span id="ca-vor">Монтаж Контроллера радиоканальных устройств (1 шт)</span></div>
+          <div style="margin-top:4px;"><b>ЛСР:</b> <span id="ca-lsr">Устройства промежуточные на количество лучей: 10 (1 шт)</span></div>
+        </div>
+        <div style="font-size:12px; color:var(--mut); margin-top:4px;" id="ca-note">
+          ℹ️ Сопоставлено вторым проходом по шифру/ссылке и совпадению объёма (1.0 шт = 1.0 шт). Требуется подтверждение инженера по составу работ.
+        </div>
+      </div>
+
+      <div class="ca-b-col">
+        <h4>Финансово-количественный анализ:</h4>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+          <div style="background:var(--hdr); padding:8px 10px; border-radius:4px;">
+            <div style="font-size:11px; color:var(--mut);">Объёмы:</div>
+            <b id="ca-qty" style="font-size:14px;">1 шт = 1 шт (Совпадает)</b>
+          </div>
+          <div style="background:#FFF7ED; border:1px solid #FED7AA; padding:8px 10px; border-radius:4px;">
+            <div style="font-size:11px; color:#9A3412;">Финансовый риск:</div>
+            <b id="ca-risk" style="font-size:16px; color:#C2561B; font-family:'IBM Plex Mono', monospace;">0 ₽</b>
+          </div>
+        </div>
+      </div>
+
+      <div class="ca-b-col" style="justify-content:center; align-items:flex-end;">
+        <h4>Решение эксперта:</h4>
+        <div style="display:flex; gap:8px; width:100%;">
+          <button class="btn btn-ok" style="flex:1; padding:8px;">✓ Принять (Y)</button>
+          <button class="btn btn-bad" style="flex:1; padding:8px;">✕ Отклонить (N)</button>
+        </div>
+        <span style="font-size:11px; color:var(--mut); margin-top:6px;">Горячие клавиши: [↑] [↓] [Y] [N]</span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==========================================================================
+       ВАРИАНТ B: ДВУХОКОННЫЙ СПЛИТ ВОР <-> ЛСР (Side-by-Side Dual Pane)
+       ========================================================================== -->
+  <div id="screen-b" class="concept-screen">
+    <div class="cb-top">
+      <div>
+        <b>Сверка в режиме сопоставления двух документов</b>
+        <span style="font-size:12.5px; color:var(--mut); margin-left:12px;">Слева: Проектные работы (ВОР) · Справа: Сметные расценки (ЛСР)</span>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <span class="badge b-ok">Связано 71</span>
+        <span class="badge b-diff">3 коллизии</span>
+        <button class="btn btn-primary">💾 Сохранить</button>
+      </div>
+    </div>
+
+    <div class="cb-grid">
+      <!-- Колонка ВОР -->
+      <div class="cb-pane">
+        <div class="cb-pane-hdr">
+          <span>📋 Ведомость объёмов работ (ВОР)</span>
+          <span class="t-code" style="font-weight:400;">86 позиций</span>
+        </div>
+        <div class="cb-list">
+          <div class="cb-item active">
+            <div>
+              <b>#1. Монтаж Контроллера радиоканальных устройств</b>
+              <div style="font-size:12px; color:var(--mut);">Объём: 1 шт</div>
+            </div>
+            <span class="badge b-part">Связано 14%</span>
+          </div>
+          <div class="cb-item">
+            <div>
+              <b>#2. Устройство стяжек ц/п толщ. 50мм</b>
+              <div style="font-size:12px; color:var(--mut);">Объём: 420 м²</div>
+            </div>
+            <span class="badge b-diff">Коллизия 50мм</span>
+          </div>
+          <div class="cb-item">
+            <div>
+              <b>#3. Огнезащитная обработка воздуховодов</b>
+              <div style="font-size:12px; color:var(--mut);">Объём: 350 м²</div>
+            </div>
+            <span class="badge b-bad">Нет в смете</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Колонка ЛСР -->
+      <div class="cb-pane">
+        <div class="cb-pane-hdr">
+          <span>📑 Локальный сметный расчёт (ЛСР 421/пр)</span>
+          <span class="t-code" style="font-weight:400;">94 позиции</span>
+        </div>
+        <div class="cb-list">
+          <div class="cb-item active">
+            <div>
+              <b>№1. Устройства промежуточные на 10 лучей</b>
+              <div style="font-size:12px; color:var(--mut);">ГЭСНм10-08-001-11 · Объём: 1 шт</div>
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button class="btn btn-ok" style="padding:2px 8px;">✓</button>
+              <button class="btn btn-bad" style="padding:2px 8px;">✕</button>
+            </div>
+          </div>
+          <div class="cb-item">
+            <div>
+              <b>№14. Устройство стяжек цементных толщ. 20мм</b>
+              <div style="font-size:12px; color:var(--mut);">ГЭСН11-01 · 4.2 (100 м²) · <b style="color:var(--diff);">+310 000 ₽</b></div>
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button class="btn btn-ok" style="padding:2px 8px;">✓</button>
+              <button class="btn btn-bad" style="padding:2px 8px;">✕</button>
+            </div>
+          </div>
+          <div class="cb-item" style="background:#FFF5F5;">
+            <div>
+              <span style="color:var(--bad); font-weight:600;">[Соответствующая расценка не обнаружена]</span>
+              <div style="font-size:12px; color:var(--mut);">Риск для подрядчика: 981 000 ₽</div>
+            </div>
+            <button class="btn btn-bad" style="padding:2px 8px;">✕ В акт</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==========================================================================
+       ВАРИАНТ C: ПЛОТНЫЙ MASTER-DETAIL (Оптимизация оригинала Гагика)
+       ========================================================================== -->
+  <div id="screen-c" class="concept-screen">
+    <!-- Сжатая верхняя панель (высота 44px вместо 220px) -->
+    <div class="cc-compact-header">
+      <div style="display:flex; gap:10px; align-items:center;">
+        <b>СверкаСмет</b>
+        <span style="color:var(--mut); font-size:12.5px;">Объект: Дворец молодёжи</span>
+        <button class="btn btn-sm">Сменить смету</button>
+      </div>
+
+      <div style="display:flex; gap:6px;">
+        <span class="badge b-ok">71 Совпало</span>
+        <span class="badge b-part">5 Проверка</span>
+        <span class="badge b-diff">3 Коллизии</span>
+        <span class="badge b-bad">7 Нет</span>
+        <span class="badge" style="background:#FFF7ED; color:#C2561B; border:1px solid #FED7AA;">Риск: 1.42 млн ₽</span>
+      </div>
+
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary btn-sm">💾 Сохранить</button>
+        <button class="btn btn-sm">📁 История</button>
+      </div>
+    </div>
+
+    <!-- Разделение: Таблица слева (с быстрыми кнопками в строках) + Инспектор справа -->
+    <div class="cc-split">
+      <div class="cc-table-box">
+        <table class="ca-table">
+          <thead>
+            <tr>
+              <th style="width:36px;">№</th>
+              <th>Позиция ВОР</th>
+              <th>Позиция ЛСР (421/пр)</th>
+              <th>Объём</th>
+              <th>Статус</th>
+              <th>Действие</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="active">
+              <td class="t-code">#1</td>
+              <td><b>Монтаж Контроллера</b></td>
+              <td>Устройства промежуточные (10 лучей)</td>
+              <td>1 → 1 шт</td>
+              <td><span class="badge b-part">Проверка наименования</span></td>
+              <td onclick="event.stopPropagation();">
+                <button class="btn btn-ok" style="padding:2px 6px;">✓</button>
+                <button class="btn btn-bad" style="padding:2px 6px;">✕</button>
+              </td>
+            </tr>
+            <tr>
+              <td class="t-code">#2</td>
+              <td><b>Стяжка ц/п толщ. 50мм</b></td>
+              <td>Стяжка ц/п толщ. 20мм</td>
+              <td>420 → 4.2 (100м²)</td>
+              <td><span class="badge b-diff">Коллизия параметров</span></td>
+              <td onclick="event.stopPropagation();">
+                <button class="btn btn-ok" style="padding:2px 6px;">✓</button>
+                <button class="btn btn-bad" style="padding:2px 6px;">✕</button>
+              </td>
+            </tr>
+            <tr>
+              <td class="t-code">#3</td>
+              <td><b>Огнезащита воздуховодов</b></td>
+              <td><span style="color:var(--bad);">[Не осмечено]</span></td>
+              <td>350 м² → —</td>
+              <td><span class="badge b-bad">Нет в смете</span></td>
+              <td onclick="event.stopPropagation();">
+                <button class="btn btn-bad" style="padding:2px 6px;">✕ В акт</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Боковой инспектор справа -->
+      <div class="cc-panel-box">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid var(--line); padding-bottom:8px;">
+          <b>Инспекция строки #1</b>
+          <span class="t-code" style="font-weight:700; color:var(--part);">14% (Pass 2)</span>
+        </div>
+        <div style="font-size:12.5px;">
+          <div style="color:var(--mut);">ВОР:</div>
+          <div style="font-weight:500;">Монтаж Контроллера радиоканальных устройств (1 шт)</div>
+          <div style="color:var(--mut); margin-top:6px;">ЛСР:</div>
+          <div style="font-weight:500;">Устройства промежуточные на 10 лучей (1 шт)</div>
+          <div style="color:var(--mut); margin-top:2px;" class="t-code">ГЭСНм10-08-001-11</div>
+        </div>
+        <div style="background:#F0FDF4; border:1px solid #BBF7D0; padding:8px 10px; border-radius:4px; font-size:12px; color:#166534;">
+          ✓ Объёмы полностью совпадают: 1 шт = 1 шт.<br>
+          ⚠️ Низкое сходство наименований (14%): проверьте спецификацию проекта.
+        </div>
+        <div style="display:flex; gap:6px; margin-top:auto;">
+          <button class="btn btn-ok" style="flex:1; padding:8px;">✓ Подтвердить (Y)</button>
+          <button class="btn btn-bad" style="flex:1; padding:8px;">✕ Отклонить (N)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function setScreen(id) {
+      document.querySelectorAll('.concept-screen').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.sw-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('screen-' + id).classList.add('active');
+      event.target.classList.add('active');
+    }
+
+    const rowDataA = [
+      {
+        vor: "Монтаж Контроллера радиоканальных устройств (1 шт)",
+        lsr: "Устройства промежуточные на количество лучей: 10 (1 шт)",
+        note: "ℹ️ Сопоставлено вторым проходом по шифру/ссылке и совпадению объёма (1.0 шт = 1.0 шт). Требуется проверка состава работ.",
+        qty: "1 шт = 1 шт (Совпадает)",
+        risk: "0 ₽"
+      },
+      {
+        vor: "Устройство стяжек ц/п толщ. <mark class=\"df\">50мм</mark> (420 м²)",
+        lsr: "Устройство стяжек цементных толщ. <mark class=\"df\">20мм</mark> (4.2 100м² = 420 м²)",
+        note: "⚠️ Коллизия параметров: не совпадает толщина слоя (50 мм против 20 мм по проекту).",
+        qty: "420 м² = 420 м² (Нормализовано)",
+        risk: "+310 000 ₽"
+      },
+      {
+        vor: "Огнезащитная обработка воздуховодов систем вентиляции (350 м²)",
+        lsr: "[Отсутствует в смете подрядчика]",
+        note: "🚨 Критический пропуск: обязательные противопожарные работы не осмечены.",
+        qty: "350 м² → 0 м² (Дефицит)",
+        risk: "+981 000 ₽"
+      },
+      {
+        vor: "Кабель огнестойкий КПСнг(А)-FRLS 2×2×0,5 (166 м)",
+        lsr: "Кабель КПСнг-FRLS 2×2×0,5 (1,66 100м = 166 м)",
+        note: "✓ Полное соответствие с автоматическим пересчётом единицы измерения (100 м ↔ м).",
+        qty: "166 м = 166 м (Совпадает)",
+        risk: "0 ₽ (OK)"
+      }
+    ];
+
+    function caSelect(idx, tr) {
+      document.querySelectorAll('#ca-tbody tr').forEach(r => r.classList.remove('active'));
+      tr.classList.add('active');
+      const d = rowDataA[idx];
+      document.getElementById('ca-vor').innerHTML = d.vor;
+      document.getElementById('ca-lsr').innerHTML = d.lsr;
+      document.getElementById('ca-note').innerHTML = d.note;
+      document.getElementById('ca-qty').textContent = d.qty;
+      document.getElementById('ca-risk').textContent = d.risk;
+    }
+  </script>
+</body>
+</html>
