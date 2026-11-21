@@ -28,7 +28,7 @@ ROOT_DIR = WEB_DIR.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from flask import Flask, request, jsonify, Response, stream_with_context, session
+from flask import Flask, request, jsonify, Response, stream_with_context, session, redirect
 from sqlalchemy import desc
 from db import SessionLocal, User, Project, AuditItem, init_db
 
@@ -136,6 +136,8 @@ def login():
 
 @app.route('/app')
 def app_view():
+    if not session.get('user_id'):
+        return redirect('/login')
     html_path = WEB_DIR / "index.html"
     return Response(html_path.read_text(encoding="utf-8"), mimetype="text/html")
 

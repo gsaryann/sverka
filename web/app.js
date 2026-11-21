@@ -692,13 +692,18 @@ async function checkAuth() {
       document.getElementById('user-name').textContent = data.user.full_name;
       document.getElementById('user-role-badge').textContent = data.user.role === 'lead' ? 'Руководитель' : 'Сметчик';
       document.getElementById('btn-logout').style.display = 'inline';
+
+      // Научный бенчмарк показываем только для руководящей роли автора
+      const bBtn = document.getElementById('btn-benchmark');
+      if (bBtn) {
+        bBtn.style.display = data.user.role === 'lead' ? 'inline-flex' : 'none';
+      }
     } else {
-      document.getElementById('user-name').innerHTML = '<a href="/login" style="color:var(--link); font-weight:600;">Войти в аккаунт</a>';
-      document.getElementById('user-role-badge').textContent = 'Демо';
-      document.getElementById('btn-logout').style.display = 'none';
+      // Закрытый доступ: без авторизации в рабочий терминал не пускаем
+      window.location.href = '/login';
     }
   } catch (e) {
-    document.getElementById('user-name').textContent = 'Офлайн';
+    window.location.href = '/login';
   }
 }
 

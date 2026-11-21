@@ -30,8 +30,8 @@
       <button class="btn btn-sm" id="btn-history" onclick="openHistoryModal()">
         📁 История проектов (PostgreSQL)
       </button>
-      <button class="btn btn-sm btn-outline" onclick="openBenchmarkModal()" title="Сравнительные замеры ВКР">
-        📊 Научный бенчмарк (ВКР)
+      <button class="btn btn-sm btn-outline" id="btn-benchmark" onclick="openBenchmarkModal()" title="Сравнительные замеры алгоритмов" style="display:none;">
+        📊 Научный бенчмарк
       </button>
     </div>
   </header>
@@ -86,7 +86,7 @@
 
     <!-- Presets bar -->
     <div class="presets-row">
-      <span>Быстрый запуск на объектах ВКР:</span>
+      <span>Типовые комплекты смет:</span>
       <button class="preset-pill active" onclick="loadPreset('set1', this)">1 · Дворец молодёжи (86 поз.)</button>
       <button class="preset-pill" onclick="loadPreset('crystal', this)">2 · СФР «Кристалл» (137 поз.)</button>
       <button class="preset-pill" onclick="loadPreset('kaluga', this)">3 · Ремонт кабинетов (534 поз.)</button>
