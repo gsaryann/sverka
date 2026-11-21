@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Концепты главной страницы | СверкаСмет (SmartMatcher)</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    :root {
+      --bg: #EEF1F4;
+      --card: #FFFFFF;
+      --ink: #1F3A5F;
+      --ink-dark: #0E1B2D;
+      --text: #1D2733;
+      --mut: #5F6F84;
+      --line: #D3DAE3;
+      --line2: #AEBAC9;
+      --hdr: #E6EBF1;
+      --ok: #2F7D5B;
+      --part: #9A6A00;
+      --diff: #C2561B;
+      --bad: #B3382C;
+      --link: #1F5FBF;
+      --accent: #2563EB;
+      --accent-hover: #1D4ED8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 "Golos Text", system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    /* Concept Switcher Floating Bar */
+    .switcher-bar {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: #0E1B2D;
+      color: #fff;
+      padding: 10px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .switcher-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .switcher-title span {
+      background: #2563EB;
+      color: #fff;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .switcher-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .s-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #CBD5E1;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 7px 14px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .s-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+    .s-btn.active {
+      background: #2563EB;
+      border-color: #3B82F6;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+    }
+
+    /* Container */
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* Concept Views */
+    .concept-view {
+      display: none;
+      animation: fadeIn 0.2s ease-out;
+    }
+    .concept-view.active {
+      display: block;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    /* Common reusable elements */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 13.5px;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.12s ease;
+      white-space: nowrap;
+      border: 1px solid var(--line2);
+      background: #fff;
+      color: var(--text);
+    }
+    .btn-primary {
+      background: var(--ink);
+      color: #fff;
+      border-color: var(--ink);
+    }
+    .btn-primary:hover {
+      background: #152740;
+    }
+    .btn-blue {
+      background: #2563EB;
+      color: #fff;
+      border-color: #1D4ED8;
+    }
+    .btn-blue:hover {
+      background: #1D4ED8;
+    }
+    .t-code {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+    .b-ok { background: #E8F5E9; color: var(--ok); border: 1px solid #C8E6C9; }
+    .b-diff { background: #FFEDD5; color: var(--diff); border: 1px solid #FED7AA; }
+    .b-bad { background: #FEE2E2; color: var(--bad); border: 1px solid #FECACA; }
+    mark.df { background: #FFEDD5; color: #9A3412; padding: 0 4px; border-radius: 2px; font-weight: 700; }
+
+    /* ========================================================
+       КОНЦЕПТ 1: МОНОЛИТНЫЙ CONTECH TERMINAL
+       Спокойная светлая гамма, единый фон, нет скачков яркости
+       ======================================================== */
+    .c1-nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .c1-brand {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .c1-brand b {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+    .c1-brand span {
+      color: var(--mut);
+      font-size: 13px;
+    }
+    .c1-hero {
+      padding: 36px 0 24px;
+    }
+    .c1-header-block {
+      max-width: 820px;
+      margin-bottom: 24px;
+    }
+    .c1-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+      background: #E2E8F0;
+      padding: 4px 10px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    .c1-header-block h1 {
+      font-size: 38px;
+      font-weight: 800;
+      line-height: 1.2;
+      color: var(--ink);
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+    .c1-header-block p {
+      font-size: 16px;
+      line-height: 1.5;
+      color: var(--mut);
+      margin-bottom: 18px;
+    }
+    .c1-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* Terminal frame inside Concept 1 */
+    .c1-terminal {
+      background: var(--card);
+      border: 1px solid var(--line2);
+      border-radius: 6px;
+      box-shadow: 0 4px 20px rgba(18, 34, 56, 0.08);
+      overflow: hidden;
+      margin-bottom: 40px;
+    }
+    .c1-t-bar {
+      background: var(--hdr);
+      border-bottom: 1px solid var(--line);
+      padding: 8px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12.5px;
+    }
+    .c1-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #FAFBFC;
+    }
+    .c1-sc {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .c1-sc small { color: var(--mut); font-size: 11px; }
+    .c1-sc b { font-size: 18px; font-family: "IBM Plex Mono", monospace; color: var(--ink); }
+
+    .c1-t-split {
+      display: grid;
+      grid-template-columns: 1.4fr 0.9fr;
+      min-height: 340px;
+    }
+    .c1-t-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      border-right: 1px solid var(--line);
+    }
+    .c1-t-table th {
+      background: var(--hdr);
+      padding: 8px 10px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--ink);
+      border-bottom: 1px solid var(--line);
+      font-size: 11.5px;
+    }
+    .c1-t-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+    }
+    .c1-t-table tr:hover { background: #F8FAFC; }
+    .c1-t-table tr.active { background: #EBF3FF; font-weight: 500; }
+
+    .c1-panel {
+      padding: 14px;
+      background: #FCFDFE;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ========================================================
+       КОНЦЕПТ 2: ИНЖЕНЕРНЫЙ SPLIT-SCREEN (50/50)
+       Всё в первом экране: слева ценность и калькулятор,
+       справа живой рабочий терминал. Без долгого скролла.
+       ======================================================== */
+    .c2-wrap {
+      display: grid;
+      grid-template-columns: 1fr 1.15fr;
+      gap: 24px;
+      padding: 24px 0 40px;
+      align-items: start;
+    }
+    .c2-left {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .c2-left h1 {
+      font-size: 30px;
+      font-weight: 800;
+      line-height: 1.2;
+      color: var(--ink);
+      letter-spacing: -0.5px;
+    }
+    .c2-left p {
+      font-size: 14.5px;
+      color: var(--mut);
+      line-height: 1.5;
+    }
+    .c2-features {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 13.5px;
+    }
+    .c2-features li {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .c2-features li b {
+      color: var(--ink);
+    }
+    .c2-calc-box {
+      background: var(--hdr);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 14px;
+    }
+    .c2-calc-top {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+    .c2-calc-metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .c2-m-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 8px 10px;
+    }
+    .c2-m-card b {
+      display: block;
+      font-size: 16px;
+      font-family: "IBM Plex Mono", monospace;
+      color: var(--ink);
+    }
+    .c2-m-card small {
+      font-size: 11px;
+      color: var(--mut);
+    }
+
+    .c2-right {
+      position: sticky;
+      top: 60px;
+    }
+
+    /* ========================================================
+       КОНЦЕПТ 3: ПОШАГОВЫЙ КОНВЕЙЕР (3 ШАГА АУДИТА)
+       Логика: Загрузка -> Алгоритмический Diff -> Защита бюджета
+       ======================================================== */
+    .c3-header {
+      text-align: center;
+      padding: 32px 0 24px;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    .c3-header h1 {
+      font-size: 34px;
+      font-weight: 800;
+      color: var(--ink);
+      margin-bottom: 8px;
+    }
+    .c3-steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .c3-step-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: relative;
+    }
+    .c3-step-num {
+      width: 24px;
+      height: 24px;
+      background: var(--ink);
+      color: #fff;
+      border-radius: 50%;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .c3-step-card h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .c3-step-card p {
+      font-size: 12.5px;
+      color: var(--mut);
+      line-height: 1.45;
+    }
+
+    .c3-interactive-stage {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 40px;
+    }
+
+    @media (max-width: 960px) {
+      .c2-wrap { grid-template-columns: 1fr; }
+      .c1-t-split { grid-template-columns: 1fr; }
+      .c3-steps { grid-template-columns: 1fr; }
+      .c1-cards-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ВЕРХНЯЯ ПАНЕЛЬ ПЕРЕКЛЮЧЕНИЯ КОНЦЕПТОВ (ИНТЕРАКТИВНЫЙ ВЫБОР) -->
+  <div class="switcher-bar">
+    <div class="switcher-title">
+      <span>Выбор концепта главной</span>
+      СверкаСмет (SmartMatcher) · Какая структура экрана вам удобнее?
+    </div>
+    <div class="switcher-buttons">
+      <button class="s-btn active" onclick="switchConcept(1)">
+        Вариант 1: «Монолитный ConTech» (Спокойный, плотный, стиль /app)
+      </button>
+      <button class="s-btn" onclick="switchConcept(2)">
+        Вариант 2: «Инженерный Split-Screen» (50/50 без долгого скролла)
+      </button>
+      <button class="s-btn" onclick="switchConcept(3)">
+        Вариант 3: «Пошаговый конвейер» (3 шага: ВОР → Diff → Защита)
+      </button>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       ВАРИАНТ 1: МОНОЛИТНЫЙ CONTECH TERMINAL
+       Единый спокойный серый фон #EEF1F4, чистые белые карточки,
+       полное отсутствие резких чёрно-белых скачков.
+       ======================================================== -->
+  <div id="concept-1" class="concept-view active">
+    <div class="container">
+      <header class="c1-nav">
+        <div class="c1-brand">
+          <b>СверкаСмет</b>
+          <span>SmartMatcher Core v2</span>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <a href="/login" class="btn">Вход в систему</a>
+          <a href="/login" class="btn btn-primary">Личный кабинет →</a>
+        </div>
+      </header>
+
+      <section class="c1-hero">
+        <div class="c1-header-block">
+          <div class="c1-tag">
+            <span>🛡️</span> Платформа автоматизированного строительного аудита
+          </div>
+          <h1>
+            Автоматический аудит строительных смет с выявлением финансовых коллизий
+          </h1>
+          <p>
+            Интеллектуальное сопоставление ведомостей объёмов работ (ВОР) и локальных сметных расчётов (ЛСР по 421/пр). Исключает человеческий фактор, находит расхождения параметров и рассчитывает сумму риска.
+          </p>
+          <div class="c1-actions">
+            <a href="/login" class="btn btn-primary" style="padding:10px 20px; font-size:14px;">
+              Начать проверку сметы →
+            </a>
+            <span style="font-size:13px; color:var(--mut);">
+              ⚡ Время сверки 500 позиций: <b>30 секунд</b> · F1-Score: <b>0.994</b>
+            </span>
+          </div>
+        </div>
+
+        <!-- Terminal Widget in Concept 1 -->
+        <div class="c1-terminal">
+          <div class="c1-t-bar">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="width:9px; height:9px; background:#10B981; border-radius:50%; display:inline-block;"></span>
+              <b>Терминал аудитора: Сверка СПС и СОУЭ (86 позиций)</b>
+            </div>
+            <span class="t-code" style="color:var(--mut);">Стандарт 421/пр · Методика Минстроя РФ</span>
+          </div>
+
+          <div class="c1-cards-grid">
+            <div class="c1-sc">
+              <small>Всего строк</small>
+              <b>86</b>
+            </div>
+            <div class="c1-sc">
+              <small style="color:var(--ok);">Совпало 100%</small>
+              <b style="color:var(--ok);">71</b>
+            </div>
+            <div class="c1-sc">
+              <small style="color:var(--diff);">Коллизии толщин/марок</small>
+              <b style="color:var(--diff);">8</b>
+            </div>
+            <div class="c1-sc">
+              <small style="color:var(--bad);">Не учтено в смете</small>
+              <b style="color:var(--bad);">7</b>
+            </div>
+            <div class="c1-sc" style="background:#FFF7ED; border-color:#FED7AA;">
+              <small style="color:#C2561B; font-weight:600;">Суммарный фин. риск</small>
+              <b style="color:#C2561B; font-size:17px;">1 420 500 ₽</b>
+            </div>
+          </div>
+
+          <div class="c1-t-split">
+            <div>
+              <table class="c1-t-table">
+                <thead>
+                  <tr>
+                    <th>№</th>
+                    <th>Наименование по ВОР (проект)</th>
+                    <th>Расценка ЛСР (смета)</th>
+                    <th>Сходство</th>
+                    <th>Фин. риск</th>
+                  </tr>
+                </thead>
+                <tbody id="c1-tbody">
+                  <tr class="active" onclick="c1Select(0, this)">
+                    <td class="t-code">#1</td>
+                    <td><b>Стяжка цементная толщ. 50мм</b><br><span class="t-code" style="color:var(--mut);">Объём: 420 м²</span></td>
+                    <td>Стяжка ц/п толщ. 20мм<br><span class="t-code" style="color:var(--mut);">ГЭСН11-01 · 4.2 (100 м²)</span></td>
+                    <td><span class="badge b-diff">87% · Коллизия</span></td>
+                    <td><b style="color:var(--diff);">+310 000 ₽</b></td>
+                  </tr>
+                  <tr onclick="c1Select(1, this)">
+                    <td class="t-code">#2</td>
+                    <td><b>Контроллер радиоканальный</b><br><span class="t-code" style="color:var(--mut);">Объём: 1 шт</span></td>
+                    <td>Устройства промежуточные<br><span class="t-code" style="color:var(--mut);">ГЭСНм10-08 · 8 шт</span></td>
+                    <td><span class="badge b-diff">76% · Завышение</span></td>
+                    <td><b style="color:var(--diff);">+129 500 ₽</b></td>
+                  </tr>
+                  <tr onclick="c1Select(2, this)">
+                    <td class="t-code">#3</td>
+                    <td><b>Огнезащита воздуховодов</b><br><span class="t-code" style="color:var(--mut);">Объём: 350 м²</span></td>
+                    <td><span style="color:var(--bad);">[Отсутствует в смете подрядчика]</span></td>
+                    <td><span class="badge b-bad">0% · Пропуск</span></td>
+                    <td><b style="color:var(--bad);">+981 000 ₽</b></td>
+                  </tr>
+                  <tr onclick="c1Select(3, this)">
+                    <td class="t-code">#4</td>
+                    <td><b>Кабель КПСнг(А)-FRLS 2×2×0,5</b><br><span class="t-code" style="color:var(--mut);">Объём: 166 м</span></td>
+                    <td>Кабель КПСнг-FRLS<br><span class="t-code" style="color:var(--mut);">1,66 (100 м) = 166 м</span></td>
+                    <td><span class="badge b-ok">99% · Нормализация</span></td>
+                    <td><span style="color:var(--ok);">0 ₽ (OK)</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Detail inspector -->
+            <div class="c1-panel" id="c1-panel">
+              <div style="display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid var(--line); padding-bottom:8px;">
+                <b id="c1-p-title" style="color:var(--ink);">Строка #1: Стяжка пола</b>
+                <span id="c1-p-sim" class="t-code" style="font-size:18px; font-weight:700; color:var(--diff);">87%</span>
+              </div>
+              <div style="font-size:12.5px;">
+                <div style="color:var(--mut); margin-bottom:2px;">ВОР (проект):</div>
+                <div id="c1-p-vor" style="font-weight:500; margin-bottom:8px;">Устройство стяжек ц/п толщ. <mark class="df">50мм</mark> (420 м²)</div>
+                <div style="color:var(--mut); margin-bottom:2px;">ЛСР (смета):</div>
+                <div id="c1-p-lsr" style="font-weight:500; margin-bottom:8px;">Устройство стяжек цементных толщ. <mark class="df">20мм</mark> (420 м²)</div>
+              </div>
+              <div style="background:#FFF7ED; border:1px solid #FED7AA; border-radius:4px; padding:8px 10px;">
+                <b style="color:#9A3412; font-size:12px;">Выявленный финансовый риск:</b>
+                <div id="c1-p-risk" style="font-size:18px; font-weight:700; color:#C2561B; font-family:'IBM Plex Mono', monospace;">+310 000 ₽</div>
+                <div id="c1-p-desc" style="font-size:11.5px; color:#78350F; margin-top:2px;">Подрядчик заложил расценку на тонкую стяжку 20 мм вместо проектных 50 мм.</div>
+              </div>
+              <div style="display:flex; gap:6px; margin-top:auto;">
+                <button class="btn" style="flex:1; background:#E8F5E9; color:var(--ok); border-color:#C8E6C9; font-size:12px;">✓ Принять (Y)</button>
+                <button class="btn" style="flex:1; background:#FEE2E2; color:var(--bad); border-color:#FECACA; font-size:12px;">✕ В дефектный акт (N)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+
+  <!-- ========================================================
+       ВАРИАНТ 2: ИНЖЕНЕРНЫЙ SPLIT-SCREEN (50/50)
+       Всё в одном экране. Слева понятный оффер и быстрый
+       интерактивный калькулятор, справа всегда на виду терминал.
+       ======================================================== -->
+  <div id="concept-2" class="concept-view">
+    <div class="container">
+      <header class="c1-nav">
+        <div class="c1-brand">
+          <b>СверкаСмет</b>
+          <span style="border-left:1px solid var(--line2); padding-left:8px;">Инженерный аудит строительных смет</span>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <a href="/login" class="btn">Войти</a>
+          <a href="/login" class="btn btn-primary">Попробовать сервис →</a>
+        </div>
+      </header>
+
+      <div class="c2-wrap">
+        <!-- Слева: Концентрированная выгода + Калькулятор окупаемости -->
+        <div class="c2-left">
+          <div class="c1-tag" style="align-self:flex-start;">
+            🏢 Для Заказчиков, Генподрядчиков и Сметных отделов
+          </div>
+          <h1>
+            Предотвратите сметные убытки ещё до подписания договора
+          </h1>
+          <p>
+            SmartMatcher сопоставляет ведомости объёмов работ и сметы по Методике 421/пр. Выявляет завышения, разные марки бетона, толщины конструкций и забытые позиции.
+          </p>
+
+          <ul class="c2-features">
+            <li><span>✓</span> <b>30 секунд вместо 4 дней:</b> мгновенный анализ сметы любой ёмкости.</li>
+            <li><span>✓</span> <b>Нормализация масштабов:</b> автоматический учёт 100 м² $\leftrightarrow$ м², 1000 шт $\leftrightarrow$ шт.</li>
+            <li><span>✓</span> <b>Расчёт финансового риска:</b> денежная оценка каждой коллизии ($\Delta V \times \text{цена}$).</li>
+            <li><span>✓</span> <b>Единый архив проверок:</b> фиксация принятых решений в защищённой базе данных.</li>
+          </ul>
+
+          <!-- Интерактивный микро-калькулятор окупаемости -->
+          <div class="c2-calc-box">
+            <div class="c2-calc-top">
+              <span>Смет в месяц: <b id="c2-lbl-smets">12 смет</b></span>
+              <span style="color:var(--link);">Окупаемость: 1-й объект</span>
+            </div>
+            <input type="range" id="c2-rng" min="1" max="40" value="12" style="width:100%;" oninput="c2UpdateCalc(this.value)">
+            <div class="c2-calc-metrics">
+              <div class="c2-m-card">
+                <b id="c2-res-hours">192 ч</b>
+                <small>Сэкономлено времени инженеров</small>
+              </div>
+              <div class="c2-m-card">
+                <b id="c2-res-money" style="color:var(--diff);">~3.8 млн ₽</b>
+                <small>Предотвращено переплат</small>
+              </div>
+            </div>
+          </div>
+
+          <a href="/login" class="btn btn-primary" style="padding:12px; text-align:center; font-size:14px;">
+            Зарегистрироваться и загрузить первую смету →
+          </a>
+        </div>
+
+        <!-- Справа: Живой терминал проверки -->
+        <div class="c2-right">
+          <div class="c1-terminal" style="margin-bottom:0;">
+            <div class="c1-t-bar">
+              <b>Терминал аудита (Живой интерактивный пример)</b>
+              <span class="badge b-ok">Core v2 Online</span>
+            </div>
+            <div class="c1-cards-grid" style="grid-template-columns: repeat(4, 1fr);">
+              <div class="c1-sc"><small>Всего</small><b>86 поз.</b></div>
+              <div class="c1-sc"><small style="color:var(--ok);">Совпало</small><b style="color:var(--ok);">71</b></div>
+              <div class="c1-sc"><small style="color:var(--diff);">Коллизии</small><b style="color:var(--diff);">8</b></div>
+              <div class="c1-sc" style="background:#FFF7ED;"><small style="color:#C2561B;">Фин. риск</small><b style="color:#C2561B; font-size:15px;">1.42 млн ₽</b></div>
+            </div>
+            <table class="c1-t-table">
+              <thead>
+                <tr>
+                  <th>№</th>
+                  <th>Позиция ВОР</th>
+                  <th>ЛСР (421/пр)</th>
+                  <th>Риск</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="active">
+                  <td class="t-code">#1</td>
+                  <td><b>Стяжка ц/п толщ. 50мм</b><br><span class="t-code">420 м²</span></td>
+                  <td>Стяжка ц/п толщ. 20мм<br><span class="badge b-diff">87% толщина</span></td>
+                  <td><b style="color:var(--diff);">+310 000 ₽</b></td>
+                </tr>
+                <tr>
+                  <td class="t-code">#2</td>
+                  <td><b>Контроллер радиоканальный</b><br><span class="t-code">1 шт</span></td>
+                  <td>Устройства промежуточные<br><span class="badge b-diff">8 шт вместо 1</span></td>
+                  <td><b style="color:var(--diff);">+129 500 ₽</b></td>
+                </tr>
+                <tr>
+                  <td class="t-code">#3</td>
+                  <td><b>Огнезащита воздуховодов</b><br><span class="t-code">350 м²</span></td>
+                  <td><span style="color:var(--bad);">[Не осмечено]</span></td>
+                  <td><b style="color:var(--bad);">+981 000 ₽</b></td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="padding:12px; background:#FAFBFC; border-top:1px solid var(--line); font-size:12px; color:var(--mut); display:flex; justify-content:space-between; align-items:center;">
+              <span>Кликните по строке в рабочем терминале для инспекции параметров</span>
+              <a href="/login" style="color:var(--link); font-weight:600;">Открыть полный терминал →</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ========================================================
+       ВАРИАНТ 3: ПОШАГОВЫЙ КОНВЕЙЕР (3 ЭТАПА АУДИТА)
+       Логичная последовательность работы сметчика:
+       1. Загрузка пары документов ВОР+ЛСР
+       2. Автоматический diff параметров и масштабов
+       3. Финансовый протокол разногласий
+       ======================================================== -->
+  <div id="concept-3" class="concept-view">
+    <div class="container">
+      <header class="c1-nav">
+        <div class="c1-brand">
+          <b>СверкаСмет</b>
+          <span>Конвейер строительного аудита</span>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <a href="/login" class="btn">Вход</a>
+          <a href="/login" class="btn btn-primary">Начать работу</a>
+        </div>
+      </header>
+
+      <div class="c3-header">
+        <h1>Как SmartMatcher проверяет сметы за 3 шага</h1>
+        <p style="font-size:15px; color:var(--mut);">
+          От загрузки двух разрозненных таблиц Excel до готового акта разногласий с финансовой оценкой.
+        </p>
+      </div>
+
+      <div class="c3-steps">
+        <div class="c3-step-card">
+          <div class="c3-step-num">1</div>
+          <h3>Входной контроль пары документов</h3>
+          <p>Вы загружаете ведомость работ (ВОР) и смету (ЛСР). Алгоритм автоматически определяет структуру, находит шапки колонок и отсекает нерелевантные таблицы.</p>
+        </div>
+        <div class="c3-step-card" style="border-color:var(--ink);">
+          <div class="c3-step-num" style="background:#2563EB;">2</div>
+          <h3>Гибридное семантическое сопоставление</h3>
+          <p>TF-IDF + венгерский алгоритм оптимально выравнивают строки 1-к-1. Встроенный конвертер приводит 100 м² к м², а т к кг без участия человека.</p>
+        </div>
+        <div class="c3-step-card">
+          <div class="c3-step-num">3</div>
+          <h3>Защита бюджета и акт разногласий</h3>
+          <p>Инженер видит diff расхождений, принимает решения в один клик (горячие клавиши Y/N), сохраняет результат в защищённый архив и скачивает дефектный акт.</p>
+        </div>
+      </div>
+
+      <!-- Live stage preview -->
+      <div class="c3-interactive-stage">
+        <div style="background:var(--hdr); padding:10px 16px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;">
+          <b>Шаг 2 и 3 в действии: Результат выравнивания и детекции коллизий</b>
+          <span class="badge b-ok">86 позиций сопоставлено за 0.05 сек</span>
+        </div>
+        <div style="padding:16px;">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+            <div style="border:1px solid var(--line); border-radius:4px; padding:12px;">
+              <div style="font-size:11px; text-transform:uppercase; color:var(--mut); font-weight:700; margin-bottom:4px;">Ведомость объёмов работ (ВОР):</div>
+              <div style="font-size:14px; font-weight:600; color:var(--ink);">Устройство стяжек ц/п толщ. <mark class="df">50мм</mark></div>
+              <div class="t-code" style="color:var(--mut); margin-top:4px;">Объём по проекту: 420 м²</div>
+            </div>
+            <div style="border:1px solid #FED7AA; background:#FFFBF7; border-radius:4px; padding:12px;">
+              <div style="font-size:11px; text-transform:uppercase; color:#9A3412; font-weight:700; margin-bottom:4px;">Локальный сметный расчёт (ЛСР по 421/пр):</div>
+              <div style="font-size:14px; font-weight:600; color:var(--ink);">Устройство стяжек цементных толщ. <mark class="df">20мм</mark></div>
+              <div class="t-code" style="color:var(--mut); margin-top:4px;">ГЭСН11-01 · 4.2 (100 м²) = 420 м² · <b style="color:var(--diff);">Риск: +310 000 ₽</b></div>
+            </div>
+          </div>
+          <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <span style="font-size:13px; color:var(--mut);">💡 Автоматически выявлено расхождение в толщине слоя (50 мм против 20 мм при равных объёмах).</span>
+            <a href="/login" class="btn btn-primary">Попробовать на своих сметах →</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Переключение концептов
+    function switchConcept(id) {
+      document.querySelectorAll('.concept-view').forEach(v => v.classList.remove('active'));
+      document.querySelectorAll('.s-btn').forEach(b => b.classList.remove('active'));
+      
+      document.getElementById('concept-' + id).classList.add('active');
+      event.target.classList.add('active');
+    }
+
+    // Интерактив для Концепта 1
+    const c1Data = [
+      {
+        title: "Строка #1: Стяжка пола",
+        sim: "87%",
+        vor: "Устройство стяжек ц/п толщ. <mark class=\"df\">50мм</mark> (420 м²)",
+        lsr: "Устройство стяжек цементных толщ. <mark class=\"df\">20мм</mark> (420 м²)",
+        risk: "+310 000 ₽",
+        desc: "Подрядчик заложил расценку на тонкую стяжку 20 мм вместо проектных 50 мм."
+      },
+      {
+        title: "Строка #2: Радиоканальный контроллер",
+        sim: "76%",
+        vor: "Монтаж радиоканального контроллера (1 шт)",
+        lsr: "Устройства промежуточные и адаптеры (<mark class=\"df\">8 шт</mark>)",
+        risk: "+129 500 ₽",
+        desc: "Необоснованное завышение объёма оборудования на 7 дополнительных единиц."
+      },
+      {
+        title: "Строка #3: Огнезащита воздуховодов",
+        sim: "0%",
+        vor: "Огнезащитная обработка воздуховодов (350 м²)",
+        lsr: "<span style=\"color:var(--bad);\">[Отсутствует в смете подрядчика]</span>",
+        risk: "+981 000 ₽",
+        desc: "Критический пропуск: пожарные требования не осмечены подрядчиком."
+      },
+      {
+        title: "Строка #4: Кабель КПСнг(А)-FRLS",
+        sim: "99%",
+        vor: "Кабель КПСнг(А)-FRLS 2×2×0,5 (166 м)",
+        lsr: "Кабель КПСнг-FRLS 1,66 (100 м) = 166 м",
+        risk: "0 ₽ (OK)",
+        desc: "Автоматический пересчёт единиц измерения 100 м ↔ м. Объёмы совпадают."
+      }
+    ];
+
+    function c1Select(idx, tr) {
+      document.querySelectorAll('#c1-tbody tr').forEach(r => r.classList.remove('active'));
+      tr.classList.add('active');
+      const d = c1Data[idx];
+      document.getElementById('c1-p-title').textContent = d.title;
+      document.getElementById('c1-p-sim').textContent = d.sim;
+      document.getElementById('c1-p-vor').innerHTML = d.vor;
+      document.getElementById('c1-p-lsr').innerHTML = d.lsr;
+      document.getElementById('c1-p-risk').textContent = d.risk;
+      document.getElementById('c1-p-desc').textContent = d.desc;
+    }
+
+    // Интерактив для Концепта 2
+    function c2UpdateCalc(val) {
+      const v = parseInt(val);
+      document.getElementById('c2-lbl-smets').textContent = v + ' смет';
+      document.getElementById('c2-res-hours').textContent = (v * 16) + ' ч';
+      document.getElementById('c2-res-money').textContent = '~' + (v * 0.32).toFixed(1) + ' млн ₽';
+    }
+  </script>
+</body>
+</html>

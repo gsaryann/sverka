@@ -171,6 +171,19 @@ FIELDS = [
 ]
 
 
+@app.route('/favicon.ico')
+@app.route('/favicon.svg')
+def favicon():
+    fav_path = WEB_DIR / "favicon.svg"
+    return Response(fav_path.read_bytes(), mimetype="image/svg+xml")
+
+
+@app.route('/concepts')
+def concepts():
+    c_path = WEB_DIR / "landing_concepts.html"
+    return Response(c_path.read_text(encoding="utf-8"), mimetype="text/html")
+
+
 @app.route('/')
 def landing():
     landing_path = WEB_DIR / "landing.html"
