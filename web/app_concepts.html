@@ -340,6 +340,177 @@
       position: sticky;
       top: 60px;
     }
+    /* ==========================================================================
+       КОНЦЕПТ D: «ЭРГОНОМИЧНЫЙ МИКС» (Финальный рекомендованный вариант Гагика)
+       ========================================================================== */
+    .cd-topbar {
+      height: 48px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 14px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      flex-wrap: wrap;
+    }
+    .cd-tb-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .cd-logo {
+      font-weight: 800;
+      font-size: 14.5px;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .cd-file-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--hdr);
+      border: 1px solid var(--line);
+      padding: 4px 9px;
+      border-radius: 4px;
+      font-size: 11.5px;
+      color: var(--ink-dark);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .cd-file-pill:hover {
+      border-color: var(--ink);
+      background: #E2E8F0;
+    }
+    .cd-tb-center {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .cd-tb-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .cd-search-input {
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-size: 12px;
+      width: 200px;
+      outline: none;
+    }
+    .cd-search-input:focus {
+      border-color: var(--ink);
+    }
+    .cd-layout {
+      display: flex;
+      gap: 14px;
+      align-items: stretch;
+      min-height: 580px;
+      position: relative;
+    }
+    .cd-table-container {
+      flex: 1 1 0%;
+      min-width: 0;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .cd-inspector-panel {
+      width: 440px;
+      flex-shrink: 0;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: hidden;
+    }
+    .cd-inspector-panel.hidden {
+      width: 0;
+      padding: 0;
+      border: none;
+      margin: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .cd-inspector-hdr {
+      background: var(--hdr);
+      padding: 10px 14px;
+      border-bottom: 1.5px solid var(--ink);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .cd-inspector-body {
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+    }
+    .cd-row-action-btn {
+      padding: 3px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.1s ease;
+    }
+    .cd-btn-yes {
+      background: #F0FDF4;
+      color: #166534;
+      border-color: #BBF7D0;
+    }
+    .cd-btn-yes:hover, .cd-btn-yes.active {
+      background: #166534;
+      color: #fff;
+    }
+    .cd-btn-no {
+      background: #FEF2F2;
+      color: #991B1B;
+      border-color: #FECACA;
+    }
+    .cd-btn-no:hover, .cd-btn-no.active {
+      background: #991B1B;
+      color: #fff;
+    }
+    .badge-decision-yes {
+      background: #DCFCE7;
+      color: #15803D;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      border: 1px solid #86EFAC;
+    }
+    .badge-decision-no {
+      background: #FEE2E2;
+      color: #B91C1C;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      border: 1px solid #FCA5A5;
+    }
   </style>
 </head>
 <body>
@@ -348,17 +519,20 @@
   <div class="switcher-top">
     <div class="switcher-left">
       <span class="tag-badge">Экран терминала /app</span>
-      <span>Сравнение 3 вариантов компоновки рабочего пространства:</span>
+      <span>Сравнение 4 вариантов компоновки рабочего пространства:</span>
     </div>
     <div class="switcher-btns">
-      <button class="sw-btn active" onclick="setScreen('a')">
-        Вариант А: «Нижний инспектор» (Таблица на 100% ширины, как в Excel/CAD)
+      <button class="sw-btn" onclick="setScreen('a')">
+        Вариант А: «Нижний инспектор»
       </button>
       <button class="sw-btn" onclick="setScreen('b')">
-        Вариант B: «Двухоконный сплит ВОР ↔ ЛСР» (Документы бок о бок)
+        Вариант B: «Двухоконный сплит ВОР ↔ ЛСР»
       </button>
       <button class="sw-btn" onclick="setScreen('c')">
-        Вариант C: «Плотный Master-Detail» (Оптимизация оригинала Гагика)
+        Вариант C: «Плотный Master-Detail»
+      </button>
+      <button class="sw-btn active" onclick="setScreen('d')">
+        ⭐ Вариант D: «Эргономичный Микс» (Ваш оригинал + Тулбар 44px + Инлайн ✓/✕ + Сворачиваемая шторка)
       </button>
     </div>
   </div>
@@ -366,7 +540,7 @@
   <!-- ==========================================================================
        ВАРИАНТ A: НИЖНИЙ ИНСПЕКТОР (Bottom Drawer / Excel & CAD Style)
        ========================================================================== -->
-  <div id="screen-a" class="concept-screen active">
+  <div id="screen-a" class="concept-screen">
     <!-- Ультракомпактный Topbar -->
     <div class="ca-topbar">
       <div class="ca-files">
@@ -695,6 +869,144 @@
     </div>
   </div>
 
+
+  <!-- ==========================================================================
+       ВАРИАНТ D: «ЭРГОНОМИЧНЫЙ МИКС» (Рекомендованный апгрейд оригинала Гагика)
+       ========================================================================== -->
+  <div id="screen-d" class="concept-screen active">
+    <!-- 1. Компактный Topbar (высота 48px, возвращает 250px полезной высоты экрану) -->
+    <div class="cd-topbar">
+      <div class="cd-tb-left">
+        <div class="cd-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="13" height="17" rx="2" stroke="#1F3A5F" stroke-width="2"/><path d="M9 7h11a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" fill="#2563EB" opacity="0.2" stroke="#2563EB" stroke-width="2"/><circle cx="16" cy="15" r="3" fill="#10B981"/></svg>
+          СверкаСмет
+        </div>
+        <span style="color:var(--mut); font-size:12px;">|</span>
+        <span class="cd-file-pill" title="Кликните для быстрой смены файла ВОР">
+          📁 ВОР: ВОР_Дворец.xlsx <span class="t-code" style="color:var(--ink); font-weight:700;">(86 поз.)</span> ▾
+        </span>
+        <span class="cd-file-pill" title="Кликните для быстрой смены файла ЛСР">
+          📁 ЛСР: ЛСР_Дворец_421пр.xlsx <span class="t-code" style="color:var(--ink); font-weight:700;">(94 поз.)</span> ▾
+        </span>
+        <button class="btn btn-sm" style="font-size:11.5px; padding:3px 8px;">Режим: Гибридный (ИИ + Алгоритм) ▾</button>
+      </div>
+
+      <div class="cd-tb-center">
+        <span class="badge b-ok" title="Строки со 100% совпадением объемов и формулировок">71 Совпало</span>
+        <span class="badge b-part" title="Строки, требующие проверки наименования">5 Проверка</span>
+        <span class="badge b-diff" title="Строки с расхождением объемов или параметров">3 Коллизии</span>
+        <span class="badge b-bad" title="Работы из проекта, отсутствующие в смете">7 Нет в смете</span>
+        <span class="badge" style="background:#FFF7ED; color:#C2561B; border:1px solid #FED7AA; font-weight:700;">Риск: 1 291 000 ₽</span>
+      </div>
+
+      <div class="cd-tb-right">
+        <input type="text" class="cd-search-input" placeholder="🔍 Поиск по смете..." id="cd-search" oninput="cdFilter(this.value)">
+        <button class="btn btn-primary" style="padding:5px 12px; font-size:12px;" onclick="alert('Проект и 86 строк успешно сохранены в PostgreSQL 17!')">💾 В базу</button>
+        <button class="btn" style="padding:5px 10px; font-size:12px;" onclick="cdToggleInspector()" id="cd-toggle-btn" title="Свернуть или развернуть боковую шторку инспектора (Горячая клавиша: Esc)">
+          ◨ Шторка [Esc]
+        </button>
+      </div>
+    </div>
+
+    <!-- 2. Двухблочный макет: Таблица слева + Выдвижная шторка справа -->
+    <div class="cd-layout">
+      <!-- Таблица (при закрытой шторке занимает 100% экрана) -->
+      <div class="cd-table-container">
+        <table class="ca-table">
+          <thead>
+            <tr>
+              <th style="width:40px; text-align:center;">№</th>
+              <th style="width:31%;">Позиция ВОР (Проект)</th>
+              <th style="width:31%;">Позиция ЛСР (Смета 421/пр)</th>
+              <th style="width:130px;">Объёмы</th>
+              <th style="width:170px;">Статус / Сходство</th>
+              <th style="width:110px;">Финанс. риск</th>
+              <th style="width:145px; text-align:center;">Быстрое решение</th>
+            </tr>
+          </thead>
+          <tbody id="cd-tbody">
+            <!-- Dynamic rows rendered via cdInitRows() -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Выдвижная шторка детального инспектора справа -->
+      <div class="cd-inspector-panel" id="cd-inspector">
+        <div class="cd-inspector-hdr">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <b id="cd-hdr-title">Инспекция строки #1</b>
+            <span class="badge b-part" id="cd-hdr-badge">14% сходство</span>
+          </div>
+          <button class="btn btn-sm" onclick="cdToggleInspector()" style="padding:2px 8px; font-size:11px;" title="Скрыть шторку и развернуть таблицу во весь экран (Esc)">
+            ✕ Скрыть [Esc]
+          </button>
+        </div>
+
+        <div class="cd-inspector-body">
+          <!-- Сравнение параметров -->
+          <div style="background:var(--hdr); padding:10px 12px; border-radius:4px; border:1px solid var(--line);">
+            <div style="font-size:11px; text-transform:uppercase; color:var(--mut); font-weight:700; margin-bottom:6px;">Сравнение наименований и шифров</div>
+            <div style="font-size:12.5px; margin-bottom:6px;">
+              <span style="color:var(--mut);">ВОР:</span> <b id="cd-d-vor">Монтаж Контроллера радиоканальных устройств</b>
+            </div>
+            <div style="font-size:12.5px; margin-bottom:6px;">
+              <span style="color:var(--mut);">ЛСР:</span> <b id="cd-d-lsr">Устройства промежуточные на 10 лучей</b>
+            </div>
+            <div style="font-size:12px; color:var(--ink); font-weight:600;" class="t-code" id="cd-d-code">
+              ГЭСНм10-08-001-11
+            </div>
+          </div>
+
+          <!-- Объемы и единицы измерения -->
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div style="background:#fff; border:1px solid var(--line); padding:8px 10px; border-radius:4px;">
+              <div style="font-size:11px; color:var(--mut);">Объём ВОР:</div>
+              <div style="font-size:15px; font-weight:700;" class="t-code" id="cd-d-vv">1.0 шт</div>
+            </div>
+            <div style="background:#fff; border:1px solid var(--line); padding:8px 10px; border-radius:4px;">
+              <div style="font-size:11px; color:var(--mut);">Объём ЛСР:</div>
+              <div style="font-size:15px; font-weight:700;" class="t-code" id="cd-d-lv">1.0 шт</div>
+            </div>
+          </div>
+
+          <!-- Обоснование ИИ-арбитра -->
+          <div style="background:#F8FAFC; border:1px solid #CBD5E1; padding:10px 12px; border-radius:4px; font-size:12px;">
+            <div style="font-weight:700; margin-bottom:6px; color:var(--ink-dark); display:flex; justify-content:space-between;">
+              <span>🤖 Обоснование SmartMatcher v2 + ИИ</span>
+              <span class="t-code" style="color:var(--mut); font-size:11px;">0.18 ₽ (420 токенов)</span>
+            </div>
+            <div id="cd-d-reason" style="line-height:1.5;">
+              ✓ Объёмы полностью совпадают: 1 шт = 1 шт.<br>
+              ⚠️ Сходство текста 14% ниже порога 55%: пара сопоставлена по шифру ГЭСНм и совпадению объема. Требуется подтверждение инженера.
+            </div>
+          </div>
+
+          <!-- Финансовый риск -->
+          <div style="display:flex; justify-content:space-between; align-items:center; background:#FFF7ED; border:1px solid #FED7AA; padding:8px 12px; border-radius:4px;">
+            <span style="font-size:12px; color:#9A3412; font-weight:600;">Влияние на стоимость:</span>
+            <span style="font-size:15px; font-weight:700; color:#C2561B;" class="t-code" id="cd-d-risk">0 ₽</span>
+          </div>
+
+          <!-- Решение эксперта прямо в шторке -->
+          <div style="margin-top:auto; padding-top:12px; border-top:1px solid var(--line);">
+            <div style="font-size:11.5px; color:var(--mut); margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+              <span>Решение эксперта (Human-in-the-Loop):</span>
+              <span id="cd-d-status-tag" class="badge">Не принято</span>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-ok" style="flex:1; padding:9px; justify-content:center; font-size:12.5px;" onclick="cdApplyDecision('yes')">
+                ✓ Подтвердить (Y)
+              </button>
+              <button class="btn btn-bad" style="flex:1; padding:9px; justify-content:center; font-size:12.5px;" onclick="cdApplyDecision('no')">
+                ✕ Отклонить (N)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     function setScreen(id) {
       document.querySelectorAll('.concept-screen').forEach(s => s.classList.remove('active'));
@@ -702,6 +1014,219 @@
       document.getElementById('screen-' + id).classList.add('active');
       event.target.classList.add('active');
     }
+
+    /* -------------------------------------------------------------------------
+       ДАННЫЕ И ИНТЕРАКТИВНОСТЬ ДЛЯ ВАРИАНТА D (ЭРГОНОМИЧНЫЙ МИКС)
+       ------------------------------------------------------------------------- */
+    const cdRows = [
+      {
+        id: 1,
+        vor: "Монтаж Контроллера радиоканальных устройств",
+        lsr: "Устройства промежуточные на количество лучей: 10",
+        code: "ГЭСНм10-08-001-11",
+        vv: "1.0 шт",
+        lv: "1.0 шт",
+        status: "part",
+        statusText: "Проверка наименования",
+        sim: 14,
+        risk: "0 ₽",
+        decision: null,
+        reason: "✓ Единицы измерения сопоставимы: шт = шт.<br>✓ Объём полностью совпадает: 1.0 шт == 1.0 шт.<br>⚠️ Сходство текста 14% ниже порога 55%: пара найдена вторым проходом по шифру ГЭСНм и совпадению объёма. Требуется подтверждение инженера."
+      },
+      {
+        id: 2,
+        vor: "Устройство стяжек ц/п толщ. <mark class=\"df\">50мм</mark>",
+        lsr: "Устройство стяжек цементных толщ. <mark class=\"df\">20мм</mark>",
+        code: "ГЭСН11-01-011-01",
+        vv: "420.0 м²",
+        lv: "4.2 (100м² = 420 м²)",
+        status: "diff",
+        statusText: "Коллизия параметров",
+        sim: 88,
+        risk: "+310 000 ₽",
+        decision: null,
+        reason: "✓ Объём нормализован: 4.2 × 100 м² = 420 м².<br>⚠️ Коллизия толщины слоя: в проекте 50 мм, в смете осмечено только 20 мм (недобор 30 мм раствора).<br>Финансовое занижение сметы подрядчика на 310 000 ₽."
+      },
+      {
+        id: 3,
+        vor: "Огнезащитная обработка воздуховодов систем вентиляции",
+        lsr: "<span style=\"color:var(--bad); font-weight:600;\">[Отсутствует в смете подрядчика]</span>",
+        code: "—",
+        vv: "350.0 м²",
+        lv: "0 м²",
+        status: "bad",
+        statusText: "Нет в смете",
+        sim: 0,
+        risk: "+981 000 ₽",
+        decision: "no",
+        reason: "🚨 Критический дефицит: обязательные противопожарные работы по СП 7.13130 полностью исключены из сметного расчета.<br>Требуется выставление предписания и включение позиции в смету."
+      },
+      {
+        id: 4,
+        vor: "Кабель огнестойкий КПСнг(А)-FRLS 2×2×0,5",
+        lsr: "Кабель КПСнг-FRLS 2×2×0,5",
+        code: "ГЭСНм08-02-399-01",
+        vv: "166.0 м",
+        lv: "1.66 (100м = 166 м)",
+        status: "ok",
+        statusText: "Точное совпадение",
+        sim: 100,
+        risk: "0 ₽",
+        decision: "yes",
+        reason: "✓ Полное тождество технических характеристик и объема.<br>✓ Автоматический пересчет единицы измерения (100 м ↔ м) подтвержден."
+      },
+      {
+        id: 5,
+        vor: "Прокладка коробов пластиковых перфорированных",
+        lsr: "Прокладка коробов пластмассовых в помещениях",
+        code: "ГЭСНм08-02-396-05",
+        vv: "80.0 м",
+        lv: "120.0 м",
+        status: "diff",
+        statusText: "Расхождение объёма",
+        sim: 91,
+        risk: "+18 400 ₽",
+        decision: null,
+        reason: "⚠️ Превышение объёма: в смете заложено 120 м против 80 м по проекту (+40 м избытка).<br>Риск завышения стоимости работ на 18 400 ₽."
+      }
+    ];
+
+    let cdActiveIdx = 0;
+    let cdInspectorOpen = true;
+
+    function cdRenderTable() {
+      const tbody = document.getElementById('cd-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      cdRows.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        if (idx === cdActiveIdx) tr.classList.add('active');
+        tr.onclick = () => cdSelectRow(idx);
+
+        let badgeClass = 'b-ok';
+        if (r.status === 'part') badgeClass = 'b-part';
+        if (r.status === 'diff') badgeClass = 'b-diff';
+        if (r.status === 'bad') badgeClass = 'b-bad';
+
+        let decHtml = '';
+        if (r.decision === 'yes') {
+          decHtml = `<span class="badge-decision-yes">✓ Принято</span>`;
+        } else if (r.decision === 'no') {
+          decHtml = `<span class="badge-decision-no">✕ Отклонено</span>`;
+        } else {
+          decHtml = `
+            <div style="display:inline-flex; gap:4px;" onclick="event.stopPropagation();">
+              <button class="cd-row-action-btn cd-btn-yes" onclick="cdInlineDecision(${idx}, 'yes', event)" title="Быстро подтвердить строку">✓</button>
+              <button class="cd-row-action-btn cd-btn-no" onclick="cdInlineDecision(${idx}, 'no', event)" title="Быстро отклонить строку">✕</button>
+            </div>
+          `;
+        }
+
+        tr.innerHTML = `
+          <td class="t-code" style="text-align:center;">#${r.id}</td>
+          <td><b>${r.vor}</b></td>
+          <td>${r.lsr}</td>
+          <td class="t-code" style="font-size:12px;">${r.vv} → ${r.lv}</td>
+          <td>
+            <span class="badge ${badgeClass}">${r.statusText}</span>
+            <span class="t-code" style="color:var(--mut); font-size:11px; margin-left:4px;">${r.sim}%</span>
+          </td>
+          <td class="t-code" style="font-weight:700; color:${r.risk === '0 ₽' ? 'var(--ok)' : 'var(--diff)'};">${r.risk}</td>
+          <td style="text-align:center;">${decHtml}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function cdSelectRow(idx) {
+      cdActiveIdx = idx;
+      if (!cdInspectorOpen) cdToggleInspector(true);
+      cdRenderTable();
+
+      const r = cdRows[idx];
+      document.getElementById('cd-hdr-title').textContent = `Инспекция строки #${r.id}`;
+      const badge = document.getElementById('cd-hdr-badge');
+      badge.textContent = `${r.sim}% сходство · ${r.statusText}`;
+      badge.className = `badge ${r.status === 'ok' ? 'b-ok' : r.status === 'part' ? 'b-part' : r.status === 'diff' ? 'b-diff' : 'b-bad'}`;
+
+      document.getElementById('cd-d-vor').innerHTML = r.vor;
+      document.getElementById('cd-d-lsr').innerHTML = r.lsr;
+      document.getElementById('cd-d-code').textContent = r.code;
+      document.getElementById('cd-d-vv').textContent = r.vv;
+      document.getElementById('cd-d-lv').textContent = r.lv;
+      document.getElementById('cd-d-reason').innerHTML = r.reason;
+      document.getElementById('cd-d-risk').textContent = r.risk;
+
+      const st = document.getElementById('cd-d-status-tag');
+      if (r.decision === 'yes') {
+        st.textContent = '✓ Подтверждено инженером';
+        st.className = 'badge b-ok';
+      } else if (r.decision === 'no') {
+        st.textContent = '✕ Отклонено инженером';
+        st.className = 'badge b-bad';
+      } else {
+        st.textContent = 'Ожидает решения';
+        st.className = 'badge b-part';
+      }
+    }
+
+    function cdInlineDecision(idx, dec, evt) {
+      if (evt) evt.stopPropagation();
+      cdRows[idx].decision = dec;
+      cdSelectRow(idx);
+    }
+
+    function cdApplyDecision(dec) {
+      cdRows[cdActiveIdx].decision = dec;
+      cdSelectRow(cdActiveIdx);
+    }
+
+    function cdToggleInspector(forceOpen) {
+      const panel = document.getElementById('cd-inspector');
+      const btn = document.getElementById('cd-toggle-btn');
+      if (forceOpen === true) {
+        cdInspectorOpen = true;
+      } else if (forceOpen === false) {
+        cdInspectorOpen = false;
+      } else {
+        cdInspectorOpen = !cdInspectorOpen;
+      }
+
+      if (cdInspectorOpen) {
+        panel.classList.remove('hidden');
+        btn.textContent = '◨ Шторка [Esc]';
+        btn.classList.add('btn-primary');
+      } else {
+        panel.classList.add('hidden');
+        btn.textContent = '◻ Развернуть [Esc]';
+        btn.classList.remove('btn-primary');
+      }
+    }
+
+    function cdFilter(q) {
+      const query = (q || '').toLowerCase();
+      document.querySelectorAll('#cd-tbody tr').forEach((tr, i) => {
+        const r = cdRows[i];
+        const match = r.vor.toLowerCase().includes(query) || r.lsr.toLowerCase().includes(query) || r.code.toLowerCase().includes(query);
+        tr.style.display = match ? '' : 'none';
+      });
+    }
+
+    // Клавиатурные шорткаты для сметчика: Esc, y, n
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        cdToggleInspector();
+      } else if (e.key === 'y' || e.key === 'Y' || e.key === 'н' || e.key === 'Н') {
+        cdApplyDecision('yes');
+      } else if (e.key === 'n' || e.key === 'N' || e.key === 'т' || e.key === 'Т') {
+        cdApplyDecision('no');
+      }
+    });
+
+    // Инициализация строк при старте
+    cdRenderTable();
+    cdSelectRow(0);
 
     const rowDataA = [
       {
