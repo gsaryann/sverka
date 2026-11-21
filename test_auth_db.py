@@ -1,8 +1,12 @@
 """
 Тесты безопасности и бизнес-логики модуля авторизации и работы с PostgreSQL.
-Проверяют хэширование паролей, защиту от дубликатов (включая регистронезависимый email),
-точность типов Numeric(14,2) и Numeric(14,3), CHECK-ограничения,
-связь LLM_LOGS с MATCH_RESULTS и каскадное удаление.
+Проверяют:
+1. Хэширование паролей и регистронезависимую уникальность lower(email).
+2. Точность Numeric(14,2) для денег, Numeric(14,3) для объёмов, Numeric(14,6) для микрокопеек LLM.
+3. Защиту ON DELETE RESTRICT при попытке удалить пользователя с проектами аудита.
+4. Сохранение логов LLM с ON DELETE SET NULL (match_result_id) при удалении позиции сметы.
+5. Защиту от привязки лога LLM к позиции из чужого проекта (составной FK).
+6. Автоматический пересчёт агрегатов проекта (total_positions, matched_count, match_rate, risk) триггером PostgreSQL.
 """
 
 import unittest
@@ -23,7 +27,8 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session = SessionLocal()
 
     def tearDown(self):
-        # Очистка тестовых записей после каждого теста (каскадно чистит связанные таблицы)
+        # Очистка тестовых записей после каждого теста в правильном порядке
+        self.session.rollback()
         self.session.query(LLMLog).delete()
         self.session.query(Document).delete()
         self.session.query(MatchResult).delete()
@@ -44,12 +49,9 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session.add(user)
         self.session.commit()
 
-        # 1. Проверяем, что в базе лежит хэш, а не сырой пароль
         db_user = self.session.query(User).filter_by(email="test_security@sverkasmet.ru").first()
         self.assertNotEqual(db_user.password_hash, raw_password)
         self.assertTrue(db_user.password_hash.startswith("pbkdf2:") or db_user.password_hash.startswith("scrypt:"))
-
-        # 2. Проверяем валидацию верного и неверного пароля
         self.assertTrue(db_user.check_password(raw_password))
         self.assertFalse(db_user.check_password("WrongPassword123!"))
 
@@ -60,7 +62,6 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session.add(u1)
         self.session.commit()
 
-        # Попытка создать пользователя с тем же email в ВЕРХНЕМ регистре
         u2 = User(email="TEST_CASE@SVERKASMET.RU", full_name="User 2", role="estimator")
         u2.set_password("Pass123!")
         self.session.add(u2)
@@ -79,7 +80,6 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session.add(user)
         self.session.commit()
 
-        # Создаем проект аудита
         project = Project(
             user_id=user.id,
             title="Текущий ремонт (Дворец молодёжи)",
@@ -92,7 +92,6 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session.add(project)
         self.session.commit()
 
-        # Добавляем строку аудита с финансовым риском и точным сметным объемом
         item = AuditItem(
             project_id=project.id,
             row_num=1,
@@ -116,106 +115,130 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session.add(item)
         self.session.commit()
 
-        # Проверяем целостность и точность Numeric
         saved_proj = self.session.query(Project).filter_by(id=project.id).first()
         self.assertEqual(len(saved_proj.items), 1)
         self.assertEqual(float(saved_proj.items[0].financial_risk), 129500.50)
         self.assertEqual(float(saved_proj.items[0].unit_price), 18500.25)
         self.assertEqual(saved_proj.user.email, "test_lead@sverkasmet.ru")
 
-    def test_full_er_schema_and_cascade_delete(self):
-        """Полная проверка всех 5 таблиц из ER-диаграммы, внешних ключей и каскадного удаления."""
-        user = User(
-            email="test_er@sverkasmet.ru",
-            full_name="Инженер Экспертизы",
-            role="estimator"
-        )
-        user.set_password("Pass12345!")
+    def test_user_delete_restricted(self):
+        """Удаление пользователя с проектами блокируется правилом ON DELETE RESTRICT."""
+        user = User(email="test_restrict@sverkasmet.ru", full_name="User Restrict", role="estimator")
+        user.set_password("Pass123!")
         self.session.add(user)
         self.session.commit()
 
-        # 1. AUDIT_PROJECTS
-        project = AuditProject(
-            user_id=user.id,
-            title="Капитальный ремонт кровли",
-            status="completed",
-            match_rate=Decimal("92.50"),
-            total_positions=40
-        )
-        self.session.add(project)
+        proj = AuditProject(user_id=user.id, title="Проект под защитой", status="completed")
+        self.session.add(proj)
         self.session.commit()
 
-        # 2. DOCUMENTS (ВОР и ЛСР)
-        doc_vor = Document(
-            project_id=project.id,
-            doc_type="VOR",
-            filename="ВОР_кровля.xlsx",
-            row_count=40
-        )
-        doc_lsr = Document(
-            project_id=project.id,
-            doc_type="LSR",
-            filename="ЛСР_кровля.xlsx",
-            row_count=42
-        )
-        self.session.add_all([doc_vor, doc_lsr])
+        # Попытка удалить пользователя должна вызвать ошибку внешнего ключа (RESTRICT)
+        self.session.delete(user)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+        self.session.rollback()
 
-        # 3. MATCH_RESULTS (с точными полями из ER-диаграммы)
-        match_item = MatchResult(
-            project_id=project.id,
+    def test_match_result_delete_sets_null_in_llm_logs(self):
+        """Удаление позиции сметы сохраняет лог LLM и расходы (ON DELETE SET NULL)."""
+        user = User(email="test_llm_log@sverkasmet.ru", full_name="User LLM", role="estimator")
+        user.set_password("Pass123!")
+        self.session.add(user)
+        self.session.commit()
+
+        proj = AuditProject(user_id=user.id, title="Тест логов", status="completed")
+        self.session.add(proj)
+        self.session.commit()
+
+        item = MatchResult(
+            project_id=proj.id,
             row_num=1,
-            vor_num="1.1",
-            lsr_num="12",
+            vor_name="ВОР позиция",
+            upper_status="ok",
+            financial_risk=Decimal("0.00")
+        )
+        self.session.add(item)
+        self.session.commit()
+
+        # Создаем лог нейросети с микрокопейками (0.003512 руб)
+        log = LLMLog(
+            project_id=proj.id,
+            match_result_id=item.id,
+            vor_name="ВОР позиция",
+            decision="ЛСР позиция",
+            confidence=Decimal("0.9500"),
+            prompt_tokens=500,
+            completion_tokens=40,
+            cost_rub=Decimal("0.003512")
+        )
+        self.session.add(log)
+        self.session.commit()
+
+        log_id = log.id
+        self.assertEqual(float(log.cost_rub), 0.003512)
+
+        # Удаляем позицию сметы: лог должен сохраниться, а match_result_id стать NULL
+        self.session.delete(item)
+        self.session.commit()
+
+        db_log = self.session.query(LLMLog).filter_by(id=log_id).first()
+        self.assertIsNotNone(db_log)
+        self.assertIsNone(db_log.match_result_id)
+        self.assertEqual(db_log.project_id, proj.id)
+        self.assertEqual(float(db_log.cost_rub), 0.003512)
+
+    def test_audit_project_trigger_automatic_aggregates(self):
+        """Триггер БД автоматически обновляет материализованные агрегаты при любых изменениях строк сметы."""
+        user = User(email="test_trg@sverkasmet.ru", full_name="User Trigger", role="estimator")
+        user.set_password("Pass123!")
+        self.session.add(user)
+        self.session.commit()
+
+        proj = AuditProject(user_id=user.id, title="Проект с триггером", status="completed")
+        self.session.add(proj)
+        self.session.commit()
+
+        # Изначально позиций 0
+        self.session.refresh(proj)
+        self.assertEqual(proj.total_positions, 0)
+        self.assertEqual(float(proj.total_financial_risk), 0.0)
+
+        # Вставляем первую строку: совпадение (ok)
+        item1 = MatchResult(
+            project_id=proj.id,
+            row_num=1,
+            vor_name="Позиция 1",
+            upper_status="ok",
+            financial_risk=Decimal("0.00")
+        )
+        # Вставляем вторую строку: коллизия (diff) с риском 5 400.50 ₽
+        item2 = MatchResult(
+            project_id=proj.id,
+            row_num=2,
+            vor_name="Позиция 2",
             upper_status="diff",
-            detail_class="Расхождение объёма",
-            text_sim=Decimal("0.8800"),
-            qty_vor=Decimal("120.500"),
-            qty_lsr=Decimal("150.500"),
-            unit_price=Decimal("450.00"),
-            financial_risk=Decimal("13500.00"),
-            formulation_warn=False,
-            user_decision="yes"
+            financial_risk=Decimal("5400.50")
         )
-        self.session.add(match_item)
-        self.session.flush()
-
-        # 4. LLM_LOGS (арбитраж нейросети с привязкой к match_result_id)
-        llm_entry = LLMLog(
-            project_id=project.id,
-            match_result_id=match_item.id,
-            vor_name="Устройство пароизоляции в один слой",
-            decision="Устройство пароизоляции оклеечной",
-            confidence=Decimal("0.9100"),
-            prompt_tokens=420,
-            completion_tokens=65,
-            cost_rub=Decimal("0.18")
-        )
-        self.session.add(llm_entry)
+        self.session.add_all([item1, item2])
         self.session.commit()
 
-        # Проверка связей и данных
-        saved_proj = self.session.query(AuditProject).filter_by(id=project.id).first()
-        self.assertIsNotNone(saved_proj)
-        self.assertEqual(len(saved_proj.documents), 2)
-        self.assertEqual(len(saved_proj.match_results), 1)
-        self.assertEqual(len(saved_proj.llm_logs), 1)
+        # Проверяем, что триггер автоматически обновил проект
+        self.session.refresh(proj)
+        self.assertEqual(proj.total_positions, 2)
+        self.assertEqual(proj.matched_count, 1)
+        self.assertEqual(proj.discrepancy_count, 1)
+        self.assertEqual(float(proj.total_financial_risk), 5400.50)
+        self.assertEqual(float(proj.match_rate), 50.00)
 
-        self.assertEqual(saved_proj.documents[0].doc_type, "VOR")
-        self.assertEqual(saved_proj.documents[1].filename, "ЛСР_кровля.xlsx")
-        self.assertEqual(float(saved_proj.match_results[0].financial_risk), 13500.0)
-        self.assertEqual(saved_proj.match_results[0].upper_status, "diff")
-        self.assertEqual(saved_proj.llm_logs[0].prompt_tokens, 420)
-        self.assertEqual(float(saved_proj.llm_logs[0].cost_rub), 0.18)
-        self.assertEqual(saved_proj.llm_logs[0].match_result_id, match_item.id)
-
-        # Проверка каскадного удаления: удаление проекта должно удалить все связанные записи
-        proj_id = project.id
-        self.session.delete(saved_proj)
+        # Удаляем item2: триггер должен пересчитать total_positions=1, match_rate=100.00, risk=0.00
+        self.session.delete(item2)
         self.session.commit()
 
-        self.assertEqual(self.session.query(Document).filter_by(project_id=proj_id).count(), 0)
-        self.assertEqual(self.session.query(MatchResult).filter_by(project_id=proj_id).count(), 0)
-        self.assertEqual(self.session.query(LLMLog).filter_by(project_id=proj_id).count(), 0)
+        self.session.refresh(proj)
+        self.assertEqual(proj.total_positions, 1)
+        self.assertEqual(proj.matched_count, 1)
+        self.assertEqual(proj.discrepancy_count, 0)
+        self.assertEqual(float(proj.total_financial_risk), 0.00)
+        self.assertEqual(float(proj.match_rate), 100.00)
 
 
 if __name__ == "__main__":

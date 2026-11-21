@@ -874,6 +874,11 @@ def api_project_save():
 
     db_sess = SessionLocal()
     try:
+        if not user_id:
+            demo_user = db_sess.query(User).filter(text("lower(email) = 'demo@sverkasmet.ru'")).first()
+            if demo_user:
+                user_id = demo_user.id
+
         project = AuditProject(
             user_id=user_id,
             title=title,

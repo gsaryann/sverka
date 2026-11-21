@@ -3,10 +3,10 @@
 Обеспечивает промышленную реализацию ER-диаграммы платформы с учетом строгих финансовых
 и нормативных требований:
 - USERS (пользователи, роли, регистронезависимый email, timestamptz)
-- AUDIT_PROJECTS (проекты аудита смет, агрегаты-кэш, CHECK-ограничения)
-- DOCUMENTS (исходные документы: ВОР, ЛСР и др., timestamptz)
+- AUDIT_PROJECTS (проекты аудита смет, BigInteger, ON DELETE RESTRICT для user_id, автосинхронизация агрегатов через триггер)
+- DOCUMENTS (исходные документы: ВОР, ЛСР и др., BigInteger, timestamptz)
 - MATCH_RESULTS (BigInteger, Numeric(14,3) для объемов, Numeric(14,2) для денег, CHECK, индексы)
-- LLM_LOGS (BigInteger, связь с match_results, токены, затраты в рублях)
+- LLM_LOGS (BigInteger, микрокопейки Numeric(14,6), связь с match_results с защитой ON DELETE SET NULL)
 """
 
 import os
@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import (
     create_engine, Column, Integer, BigInteger, String, Numeric, Boolean,
-    DateTime, Text, ForeignKey, desc, text, CheckConstraint, Index
+    DateTime, Text, ForeignKey, desc, text, CheckConstraint, Index, UniqueConstraint
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
 
@@ -68,7 +68,7 @@ class User(Base):
         Index("ix_users_email_lower", text("lower(email)"), unique=True),
     )
 
-    projects = relationship("AuditProject", back_populates="user", cascade="all, delete-orphan")
+    projects = relationship("AuditProject", back_populates="user")
 
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
@@ -91,15 +91,19 @@ class AuditProject(Base):
     """Сущность AUDIT_PROJECTS из ER-диаграммы (создаётся пользователем)."""
     __tablename__ = "audit_projects"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    id = Column(BigInteger, primary_key=True)
+    # ON DELETE RESTRICT защищает аудиты от случайного удаления пользователя
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     title = Column(String(255), nullable=False)
     status = Column(String(50), default="completed", nullable=False)
-    match_rate = Column(Numeric(5, 2), default=0.0, nullable=False)  # 0.00 .. 100.00 %
+    match_rate = Column(
+        Numeric(5, 2), default=0.0, nullable=False,
+        comment="Процент совпадения по проекту (шкала 0.00..100.00%)"
+    )
     total_positions = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
-    # Денормализованные материализованные агрегаты-кэш для мгновенной выборки списков проектов
+    # Денормализованные материализованные агрегаты-кэш (поддерживаются триггером trg_match_results_aggregates)
     object_name = Column(String(255), nullable=True)
     vor_filename = Column(String(255), nullable=True)
     lsr_filename = Column(String(255), nullable=True)
@@ -114,6 +118,7 @@ class AuditProject(Base):
         CheckConstraint("matched_count >= 0", name="check_project_matched_count"),
         CheckConstraint("discrepancy_count >= 0", name="check_project_discrepancy_count"),
         CheckConstraint("total_financial_risk >= 0", name="check_project_total_financial_risk"),
+        # Индекс покрывает выборку проектов пользователя, упорядоченную по дате (одиночный индекс не нужен)
         Index("ix_audit_projects_user_created", "user_id", desc("created_at")),
     )
 
@@ -159,8 +164,8 @@ class Document(Base):
     """Сущность DOCUMENTS из ER-диаграммы (содержится в проекте аудита)."""
     __tablename__ = "documents"
 
-    id = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("audit_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(BigInteger, primary_key=True)
+    project_id = Column(BigInteger, ForeignKey("audit_projects.id", ondelete="CASCADE"), nullable=False, index=True)
     doc_type = Column(String(50), nullable=False)  # "VOR", "LSR", "ACT", "DOC"
     filename = Column(String(255), nullable=False)
     row_count = Column(Integer, default=0, nullable=False)
@@ -189,15 +194,18 @@ class MatchResult(Base):
     __tablename__ = "match_results"
 
     id = Column(BigInteger, primary_key=True)
-    project_id = Column(Integer, ForeignKey("audit_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(BigInteger, ForeignKey("audit_projects.id", ondelete="CASCADE"), nullable=False)
     vor_num = Column(String(50), nullable=True)
     lsr_num = Column(String(50), nullable=True)
     upper_status = Column(String(50), nullable=False)  # ok, part, diff, none
     detail_class = Column(String(100), nullable=True)  # Расхождение объёма, Точное совпадение, etc.
-    text_sim = Column(Numeric(5, 4), default=0.0, nullable=False)  # 0.0000 .. 1.0000
+    text_sim = Column(
+        Numeric(5, 4), nullable=True,
+        comment="Косинусное/текстовое сходство наименований (шкала 0.0000..1.0000)"
+    )
     qty_vor = Column(Numeric(14, 3), nullable=True)  # Сметные объемы: 3 знака после запятой
     qty_lsr = Column(Numeric(14, 3), nullable=True)
-    unit_price = Column(Numeric(14, 2), default=0.0, nullable=False)  # Деньги: 2 знака (копейки)
+    unit_price = Column(Numeric(14, 2), nullable=True, comment="Цена за единицу (руб.)")
     financial_risk = Column(Numeric(14, 2), default=0.0, nullable=False)
     formulation_warn = Column(Boolean, default=False, nullable=False)
     user_decision = Column(String(50), nullable=True)  # 'yes', 'no', None
@@ -214,15 +222,16 @@ class MatchResult(Base):
     __table_args__ = (
         CheckConstraint("upper_status IN ('ok', 'part', 'diff', 'none')", name="check_match_upper_status"),
         CheckConstraint("user_decision IN ('yes', 'no') OR user_decision IS NULL", name="check_match_user_decision"),
-        CheckConstraint("text_sim >= 0 AND text_sim <= 1.0", name="check_match_text_sim"),
-        CheckConstraint("unit_price >= 0", name="check_match_unit_price"),
+        CheckConstraint("text_sim IS NULL OR (text_sim >= 0 AND text_sim <= 1.0)", name="check_match_text_sim"),
+        CheckConstraint("unit_price IS NULL OR unit_price >= 0", name="check_match_unit_price"),
         CheckConstraint("financial_risk >= 0", name="check_match_financial_risk"),
         Index("ix_match_results_proj_status", "project_id", "upper_status"),
         Index("ux_match_results_proj_row", "project_id", "row_num", unique=True),
+        UniqueConstraint("id", "project_id", name="uq_match_results_id_project"),
     )
 
     project = relationship("AuditProject", back_populates="match_results")
-    llm_logs = relationship("LLMLog", back_populates="match_result", cascade="all, delete-orphan")
+    llm_logs = relationship("LLMLog", back_populates="match_result")
 
     # Свойства для прозрачной совместимости со старыми вызовами
     @property
@@ -242,7 +251,7 @@ class MatchResult(Base):
         self.text_sim = val
 
     def to_dict(self):
-        sim_val = float(self.text_sim) if self.text_sim is not None else 0.0
+        sim_val = float(self.text_sim) if self.text_sim is not None else None
         return {
             "id": self.id,
             "n": self.row_num,
@@ -254,12 +263,12 @@ class MatchResult(Base):
             "vv": float(self.qty_vor) if self.qty_vor is not None else None,
             "lv": float(self.qty_lsr) if self.qty_lsr is not None else None,
             "u": self.unit or "",
-            "pr": float(self.unit_price or 0.0),
+            "pr": float(self.unit_price) if self.unit_price is not None else 0.0,
             "risk": float(self.financial_risk or 0.0),
             "s": self.upper_status,
             "detail_class": self.detail_class or "",
-            "sim": round(sim_val * 100),
-            "text_sim": sim_val,
+            "sim": round(sim_val * 100) if sim_val is not None else 0,
+            "text_sim": sim_val if sim_val is not None else 0.0,
             "ai": self.is_ai,
             "note": self.explanation or "",
             "formulation_warn": self.formulation_warn,
@@ -272,14 +281,22 @@ class LLMLog(Base):
     __tablename__ = "llm_logs"
 
     id = Column(BigInteger, primary_key=True)
-    project_id = Column(Integer, ForeignKey("audit_projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    match_result_id = Column(BigInteger, ForeignKey("match_results.id", ondelete="CASCADE"), nullable=True, index=True)
-    vor_name = Column(Text, nullable=False)
+    project_id = Column(BigInteger, ForeignKey("audit_projects.id", ondelete="CASCADE"), nullable=False)
+    # match_result_id имеет внешний ключ к match_results.id с ON DELETE SET NULL,
+    # а также валидируется составным внешним ключом fk_llm_logs_match_result_project
+    match_result_id = Column(BigInteger, ForeignKey("match_results.id", ondelete="SET NULL"), nullable=True, index=True)
+    vor_name = Column(Text, nullable=True)
     decision = Column(String(100), nullable=False)
-    confidence = Column(Numeric(5, 4), default=0.0, nullable=False)  # 0.0000 .. 1.0000
+    confidence = Column(
+        Numeric(5, 4), default=0.0, nullable=False,
+        comment="Уверенность LLM-модели в решении (шкала 0.0000..1.0000)"
+    )
     prompt_tokens = Column(Integer, default=0, nullable=False)
     completion_tokens = Column(Integer, default=0, nullable=False)
-    cost_rub = Column(Numeric(14, 2), default=0.0, nullable=False)
+    cost_rub = Column(
+        Numeric(14, 6), default=0.0, nullable=False,
+        comment="Стоимость вызова в рублях с микрокопейками (до 6 знаков)"
+    )
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
     __table_args__ = (
@@ -298,7 +315,7 @@ class LLMLog(Base):
             "id": self.id,
             "project_id": self.project_id,
             "match_result_id": self.match_result_id,
-            "vor_name": self.vor_name,
+            "vor_name": self.vor_name or "",
             "decision": self.decision,
             "confidence": float(self.confidence or 0.0),
             "prompt_tokens": self.prompt_tokens,
@@ -314,8 +331,75 @@ AuditItem = MatchResult
 
 
 def init_db():
-    """Создание таблиц по промышленной ER-диаграмме и инициализация базовых данных."""
+    """Создание таблиц по промышленной ER-диаграмме и инициализация базовых данных и триггеров."""
     Base.metadata.create_all(bind=engine)
+
+    with engine.connect() as conn:
+        # Удаляем дублирующиеся одиночные индексы, покрытые составными
+        conn.execute(text("DROP INDEX IF EXISTS ix_audit_projects_user_id;"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_llm_logs_project_id;"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_match_results_project_id;"))
+
+        # Составной внешний ключ в llm_logs, гарантирующий принадлежность match_result_id тому же project_id
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'fk_llm_logs_match_result_project'
+                ) THEN
+                    ALTER TABLE llm_logs ADD CONSTRAINT fk_llm_logs_match_result_project
+                        FOREIGN KEY (match_result_id, project_id)
+                        REFERENCES match_results (id, project_id)
+                        ON DELETE SET NULL (match_result_id);
+                END IF;
+            END $$;
+        """))
+
+        # Триггер автосинхронизации материализованных агрегатов в audit_projects
+        conn.execute(text("""
+            CREATE OR REPLACE FUNCTION update_audit_project_aggregates()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $func$
+            DECLARE
+                v_project_id bigint;
+            BEGIN
+                IF TG_OP = 'DELETE' THEN
+                    v_project_id := OLD.project_id;
+                ELSE
+                    v_project_id := NEW.project_id;
+                END IF;
+
+                UPDATE audit_projects
+                SET
+                    total_positions = sub.total_pos,
+                    matched_count = sub.matched_cnt,
+                    discrepancy_count = sub.disc_cnt,
+                    total_financial_risk = sub.tot_risk,
+                    match_rate = CASE WHEN sub.total_pos > 0 
+                                      THEN ROUND((sub.matched_cnt::numeric / sub.total_pos::numeric) * 100, 2)
+                                      ELSE 0.00 END
+                FROM (
+                    SELECT 
+                        COUNT(*) AS total_pos,
+                        COUNT(*) FILTER (WHERE upper_status = 'ok') AS matched_cnt,
+                        COUNT(*) FILTER (WHERE upper_status IN ('diff', 'part')) AS disc_cnt,
+                        COALESCE(SUM(financial_risk), 0.00) AS tot_risk
+                    FROM match_results
+                    WHERE project_id = v_project_id
+                ) sub
+                WHERE id = v_project_id;
+
+                RETURN NULL;
+            END;
+            $func$;
+
+            DROP TRIGGER IF EXISTS trg_match_results_aggregates ON match_results;
+            CREATE TRIGGER trg_match_results_aggregates
+            AFTER INSERT OR UPDATE OR DELETE ON match_results
+            FOR EACH ROW EXECUTE FUNCTION update_audit_project_aggregates();
+        """))
+        conn.commit()
 
     session = SessionLocal()
     try:
