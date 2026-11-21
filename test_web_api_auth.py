@@ -129,6 +129,38 @@ class TestWebApiAuthAndProjects(unittest.TestCase):
         self.assertEqual(len(detail_data["items"]), 1)
         self.assertEqual(detail_data["items"][0]["code"], "ГЭСНм10-08-001-13")
 
+    def test_unrecognized_file_friendly_error(self):
+        """Проверка понятного структурированного сообщения об ошибке при загрузке некорректного файла Excel."""
+        import io
+        import openpyxl
+
+        # Создаем временный файл Excel со случайными листами опроса/интервью
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "Как читать"
+        ws1.append(["Инструкция", "Пояснения"])
+        ws2 = wb.create_sheet("Результаты по вопросам")
+        ws2.append(["Вопрос 1", "Ответ A", "Ответ B"])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        # Отправляем этот файл как ВОР, а валидную смету как ЛСР
+        valid_lsr_path = ROOT_DIR / "data" / "ЛСР.xlsx"
+        with open(valid_lsr_path, "rb") as f_lsr:
+            data = {
+                'vor': (buf, 'survey_data.xlsx'),
+                'lsr': (io.BytesIO(f_lsr.read()), 'valid_lsr.xlsx')
+            }
+            res = self.client.post("/api/compare", data=data, content_type='multipart/form-data')
+        self.assertEqual(res.status_code, 400)
+        resp_data = res.get_json()
+        self.assertIn("error_title", resp_data)
+        self.assertIn("error_message", resp_data)
+        self.assertIn("error_hint", resp_data)
+        self.assertTrue("структур" in resp_data["error_title"].lower() or "заголов" in resp_data["error_title"].lower())
+        self.assertTrue("в формате .xlsx" in resp_data["error_hint"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()

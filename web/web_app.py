@@ -79,6 +79,55 @@ def _validate_document_pair(vor_path: Path, lsr_path: Path) -> str | None:
     if kind_v == 'lsr' and kind_l == 'vor':
         return 'Файлы, похоже, перепутаны: в поле ВОР загружена ЛСР, а в поле ЛСР — ВОР. Поменяйте их местами и запустите сверку снова.'
     return None
+
+
+def format_parsing_error(e: Exception) -> tuple[dict, int]:
+    err_str = str(e)
+    # Ошибка отсутствия сметных заголовков
+    if "Не удалось определить заголовки" in err_str:
+        is_vor = "VOR" in err_str
+        is_lsr = "LSR" in err_str
+        doc_kind = "ведомости объёмов работ (ВОР)" if is_vor else ("локального сметного расчёта (ЛСР)" if is_lsr else "сметного документа")
+        sheets = ""
+        if "Листы книги:" in err_str:
+            try:
+                sheets = err_str.split("Листы книги:")[1].split(".")[0].strip()
+            except Exception:
+                sheets = ""
+        
+        return {
+            'error': f"Не удалось распознать структуру {doc_kind}.",
+            'error_title': f"Не удалось распознать структуру {doc_kind}",
+            'error_message': (
+                f"Загруженный файл не содержит обязательных колонок строительной сметы "
+                f"(«Наименование работ / затрат», «Количество / Объём», «Единица измерения»)."
+            ),
+            'error_details': f"Обнаруженные листы в файле: {sheets}" if sheets else None,
+            'error_hint': "Убедитесь, что загружаете корректную ведомость объёмов работ (ВОР), дефектную ведомость или локальную смету (по Методике 421/пр) в формате .xlsx."
+        }, 400
+
+    if "Заголовки" in err_str and "позиции не распознаны" in err_str:
+        return {
+            'error': "Заголовки сметы найдены, но строки с работами не распознаны.",
+            'error_title': "Строки с работами не распознаны",
+            'error_message': "В таблице найдены заголовки колонок, но не удалось извлечь ни одной заполненной позиции работ с объёмами.",
+            'error_hint': "Проверьте, заполнены ли ячейки с наименованиями и количеством в загруженной таблице Excel."
+        }, 400
+
+    if "InvalidFileException" in type(e).__name__ or "not a valid xlsx" in err_str.lower() or "zipfile" in err_str.lower():
+        return {
+            'error': "Файл не является корректным документом Excel (.xlsx).",
+            'error_title': "Некорректный формат файла",
+            'error_message': "Файл повреждён либо имеет неподдерживаемый формат (поддерживаются только файлы .xlsx).",
+            'error_hint': "Сохраните файл в Microsoft Excel как «Книга Excel (.xlsx)» и повторите загрузку."
+        }, 400
+
+    return {
+        'error': f"{type(e).__name__}: {err_str}",
+        'error_title': "Ошибка при обработке сметного документа",
+        'error_message': err_str,
+        'error_hint': "Проверьте корректность загруженных файлов или воспользуйтесь готовыми типовыми комплектами."
+    }, 500
 import match
 import baseline_legacy
 import perturb
@@ -243,7 +292,12 @@ def api_compare():
 
         pair_error = _validate_document_pair(vor_path, lsr_path)
         if pair_error:
-            return jsonify({'error': pair_error}), 400
+            return jsonify({
+                'error': pair_error,
+                'error_title': 'Несоответствие пары документов',
+                'error_message': pair_error,
+                'error_hint': 'Для сверки требуется одна ведомость объёмов работ (ВОР) и один локальный сметный расчёт (ЛСР).'
+            }), 400
 
         vor = parse_vor(str(vor_path))
         parse_warnings = get_parse_warnings()
@@ -300,7 +354,8 @@ def api_compare():
         return jsonify(resp_payload)
 
     except Exception as e:
-        return jsonify({'error': f'{type(e).__name__}: {str(e)}'}), 500
+        resp, status = format_parsing_error(e)
+        return jsonify(resp), status
     finally:
         for p in tmp_files_to_clean:
             try:
@@ -348,7 +403,12 @@ def api_compare_stream():
 
         pair_error = _validate_document_pair(vor_path, lsr_path)
         if pair_error:
-            return jsonify({'error': pair_error}), 400
+            return jsonify({
+                'error': pair_error,
+                'error_title': 'Несоответствие пары документов',
+                'error_message': pair_error,
+                'error_hint': 'Для сверки требуется одна ведомость объёмов работ (ВОР) и один локальный сметный расчёт (ЛСР).'
+            }), 400
 
         vor = parse_vor(str(vor_path))
         parse_warnings = get_parse_warnings()
@@ -369,7 +429,8 @@ def api_compare_stream():
                 p.unlink(missing_ok=True)
             except Exception:
                 pass
-        return jsonify({'error': f'{type(e).__name__}: {str(e)}'}), 500
+        resp, status = format_parsing_error(e)
+        return jsonify(resp), status
 
     def generate():
         global LAST_RESULTS, ORIG_RESULTS

@@ -407,6 +407,79 @@ document.getElementById('f-lsr').addEventListener('change', () => {
 });
 
 // ==================== РАБОЧАЯ СВЕРКА ЧЕРЕЗ API ====================
+// ==================== UI УВЕДОМЛЕНИЯ И МОДАЛКА ОШИБОК ====================
+function showToast(text, type = 'info') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const el = document.createElement('div');
+  el.style.cssText = `
+    pointer-events: auto;
+    background: #1F3A5F;
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-weight: 500;
+    box-shadow: 0 6px 20px rgba(18, 34, 56, 0.28);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  `;
+  if (type === 'success') {
+    el.style.background = '#2F7D5B';
+  } else if (type === 'error') {
+    el.style.background = '#B3382C';
+  } else if (type === 'warning') {
+    el.style.background = '#9A6A00';
+  }
+  el.innerHTML = text;
+  container.appendChild(el);
+  requestAnimationFrame(() => {
+    el.style.opacity = '1';
+    el.style.transform = 'none';
+  });
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(10px)';
+    setTimeout(() => el.remove(), 250);
+  }, 4200);
+}
+
+function showErrorModal(data) {
+  const m = document.getElementById('error-modal');
+  if (!m) {
+    showToast(data.error_message || data.error || 'Ошибка сопоставления', 'error');
+    return;
+  }
+  document.getElementById('err-modal-title').textContent = data.error_title || 'Не удалось распознать документ';
+  document.getElementById('err-modal-msg').textContent = data.error_message || data.error || 'Файл не содержит ожидаемой структуры сметной документации.';
+
+  const detBox = document.getElementById('err-modal-details-box');
+  if (data.error_details) {
+    detBox.textContent = data.error_details;
+    detBox.style.display = 'block';
+  } else {
+    detBox.style.display = 'none';
+  }
+
+  const hintEl = document.getElementById('err-modal-hint');
+  if (data.error_hint) {
+    hintEl.textContent = data.error_hint;
+  } else {
+    hintEl.textContent = 'Убедитесь, что загружаете корректную ведомость объёмов работ (ВОР), дефектную ведомость или локальную смету (по Методике 421/пр) в формате .xlsx.';
+  }
+
+  m.style.display = 'flex';
+}
+
+function closeErrorModal() {
+  const m = document.getElementById('error-modal');
+  if (m) m.style.display = 'none';
+}
+
 async function runCompare() {
   const mode = document.getElementById('w-mode').value;
   const thr = document.getElementById('w-thr').value;
@@ -417,7 +490,7 @@ async function runCompare() {
   if (guard) { guard.style.display = 'none'; guard.textContent = ''; }
 
   if (!activePreset && (!fVor || !fLsr)) {
-    alert('Пожалуйста, выберите оба файла Excel или нажмите один из готовых комплектов.');
+    showToast('Пожалуйста, выберите оба файла Excel или нажмите один из готовых комплектов.', 'warning');
     return;
   }
 
@@ -440,7 +513,7 @@ async function runCompare() {
     const resp = await fetch('/api/compare', { method: 'POST', body: fd });
     const data = await resp.json();
     if (!resp.ok || data.error) {
-      alert('Ошибка сверки: ' + (data.error || 'Сбой сопоставления'));
+      showErrorModal(data);
       return;
     }
 
@@ -490,7 +563,7 @@ async function runCompare() {
     if (saveBtn) saveBtn.style.display = 'inline-flex';
 
   } catch (err) {
-    alert('Сетевая ошибка при обращении к серверу: ' + err.message);
+    showToast('Сетевая ошибка при обращении к серверу: ' + err.message, 'error');
   } finally {
     btn.disabled = false;
     load.style.display = 'none';
@@ -544,13 +617,13 @@ async function saveCurrentProjectToDB() {
     });
     const data = await res.json();
     if (res.ok && data.ok) {
-      alert(`✅ Проект успешно зафиксирован в PostgreSQL 17 (sverka_db) с ID #${data.project.id}!`);
+      showToast(`✅ Проект успешно зафиксирован в PostgreSQL (ID #${data.project.id})!`, 'success');
       currentProjectId = data.project.id;
     } else {
-      alert('Ошибка при сохранении: ' + (data.error || 'Неизвестная ошибка'));
+      showToast('Ошибка при сохранении: ' + (data.error || 'Неизвестная ошибка'), 'error');
     }
   } catch (e) {
-    alert('Ошибка соединения с базой: ' + e.message);
+    showToast('Ошибка соединения с базой: ' + e.message, 'error');
   } finally {
     saveBtn.disabled = false;
     saveBtn.textContent = '💾 Сохранить в БД';
@@ -604,7 +677,7 @@ async function loadProjectFromDB(id) {
     const res = await fetch(`/api/projects/${id}`);
     const data = await res.json();
     if (!res.ok || data.error) {
-      alert('Не удалось загрузить проект: ' + (data.error || 'Ошибка'));
+      showToast('Не удалось загрузить проект: ' + (data.error || 'Ошибка'), 'error');
       return;
     }
 
@@ -636,9 +709,9 @@ async function loadProjectFromDB(id) {
     S.sel = ROWS.length ? ROWS[0].n : 1;
     S.open = true;
     render();
-    alert(`Проект #${data.id} «${data.title}» загружен из PostgreSQL!`);
+    showToast(`Проект #${data.id} «${data.title}» загружен из базы!`, 'success');
   } catch (e) {
-    alert('Сетевая ошибка: ' + e.message);
+    showToast('Сетевая ошибка: ' + e.message, 'error');
   }
 }
 
@@ -662,7 +735,7 @@ async function runBenchmark() {
     const data = await res.json();
     load.style.display = 'none';
     if (!res.ok || data.error) {
-      alert('Ошибка бенчмарка: ' + (data.error || ''));
+      showToast('Ошибка бенчмарка: ' + (data.error || ''), 'error');
       return;
     }
 
@@ -678,7 +751,7 @@ async function runBenchmark() {
     `).join("");
   } catch (e) {
     load.style.display = 'none';
-    alert('Ошибка: ' + e.message);
+    showToast('Ошибка: ' + e.message, 'error');
   }
 }
 
