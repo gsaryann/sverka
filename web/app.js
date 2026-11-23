@@ -503,7 +503,13 @@ $('#info').onclick = e => { if (e.target.id === 'showAll') { S.fl = 'all'; first
 
 // ==================== МОДАЛЬНЫЕ ОКНА ====================
 const openM = id => $(id)?.classList.add('on');
-const closeM = () => $$('.ov.on').forEach(m => m.classList.remove('on'));
+const closeM = id => {
+  if (id) {
+    $(id)?.classList.remove('on');
+  } else {
+    $$('.ov.on').forEach(m => m.classList.remove('on'));
+  }
+};
 
 $('#bUp').onclick = () => openM('#mUp');
 $('#w-thr').onchange = e => {
@@ -515,7 +521,9 @@ $('#w-thr').onchange = e => {
 };
 
 $$('.ov').forEach(m => m.addEventListener('click', e => {
-  if (e.target === m || e.target.hasAttribute('data-close')) closeM();
+  if (e.target === m || e.target.hasAttribute('data-close')) {
+    m.classList.remove('on');
+  }
 }));
 
 // ==================== ЭКСПОРТ CSV ====================
@@ -607,9 +615,13 @@ addEventListener('keydown', e => {
     if (e.key === 'Escape') t.blur();
     return;
   }
-  if (document.querySelector('.ov.on')) {
-    if (e.key === 'Escape') closeM();
-    return;
+  const openModals = Array.from(document.querySelectorAll('.ov.on'));
+  if (openModals.length) {
+    if (e.key === 'Escape') {
+      const topModal = openModals[openModals.length - 1];
+      topModal.classList.remove('on');
+      return;
+    }
   }
   const c = e.code;
   if (c === 'ArrowDown' || c === 'KeyJ') {
@@ -803,6 +815,14 @@ function showErrorModal(data) {
   }
   $('#err-modal-hint').textContent = data.error_hint || 'Убедитесь, что загружаете корректную ведомость объёмов работ (ВОР) и смету (по Методике 421/пр) в формате .xlsx.';
   m.classList.add('on');
+
+  // Дублируем понятное предупреждение прямо внутри модального окна выбора файлов #mUp,
+  // чтобы после закрытия окна ошибки пользователь сразу видел контекст и выбирал новые файлы
+  const guard = $('#w-guard-banner');
+  if (guard) {
+    guard.innerHTML = `<b>❌ ${esc(data.error_title || 'Ошибка распознавания')}:</b> ${esc(data.error_message || data.error || '')}<div style="font-size:11.5px;margin-top:4px;opacity:0.9">${esc(data.error_hint || '')}</div>`;
+    guard.style.display = 'block';
+  }
 }
 
 async function runCompare() {

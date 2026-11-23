@@ -6,7 +6,7 @@
   <title>СверкаСмет | Интеллектуальный аудит сметной документации</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="/style.css?v=2.3">
+  <link rel="stylesheet" href="/style.css?v=2.4">
 </head>
 <body>
 
@@ -199,7 +199,7 @@
 </div>
 
 <!-- ==================== МОДАЛЬНОЕ ОКНО: ОШИБКИ И СТРУКТУРНЫЕ НЕСООТВЕТСТВИЯ ==================== -->
-<div class="ov" id="error-modal">
+<div class="ov" id="error-modal" style="z-index:995;">
   <div class="mc">
     <div class="mh" style="color:var(--bad);">
       <span id="err-modal-title">Ошибка сопоставления</span>
@@ -211,7 +211,8 @@
       <p id="err-modal-hint" style="font-size:12px; color:var(--mut);"></p>
     </div>
     <div class="mf">
-      <button class="btn" data-close>Понятно</button>
+      <button class="btn p" data-close id="btn-err-back">📁 Вернуться к выбору файлов</button>
+      <button class="btn" id="btn-err-close-all" onclick="closeM()">Закрыть всё</button>
     </div>
   </div>
 </div>
@@ -234,6 +235,6 @@
   </div>
 </div>
 
-<script src="/app.js?v=2.3"></script>
+<script src="/app.js?v=2.4"></script>
 </body>
 </html>
