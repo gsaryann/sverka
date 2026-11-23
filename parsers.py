@@ -46,6 +46,9 @@ class Item:
     name_norm: str = ""             # Нормализованное наименование для поиска
     code: str = ""                  # Нормативный шифр или артикул (ГЭСН, ФЕР, ФСБЦ, ТЦ)
     characteristics: Dict[str, Any] = field(default_factory=dict)
+    unit_price: Optional[float] = None     # Цена за единицу измерения в текущем уровне цен (Колонка 14 ЛСР 421/пр)
+    total_price: Optional[float] = None    # Сметная стоимость позиции (Колонка 16 ЛСР 421/пр / «Всего по позиции»)
+    base_price: Optional[float] = None     # Цена за единицу в базисном уровне цен (Колонка 12 ЛСР 421/пр)
 
     def __post_init__(self):
         if not self.name_norm:
@@ -164,6 +167,31 @@ def _refine_qty_col(ws, header_row: int, qty_col: int, width: int = 4) -> Tuple[
     return qty_col, header_row
 
 
+def _find_price_cols(ws, header_row: int, max_scan: int = 4) -> Dict[str, Optional[int]]:
+    """Находит колонки стоимостей в ЛСР (Методика 421/пр):
+    - unit_price: колонка 14 (на единицу измерения в текущем уровне цен)
+    - total_price: колонка 16 (всего в текущем уровне цен)
+    - base_price: колонка 12 (на единицу измерения в базисном уровне цен)
+    """
+    res = {"unit_price": None, "total_price": None, "base_price": None}
+    for r in range(header_row, min(header_row + max_scan + 1, ws.max_row + 1)):
+        row = next(ws.iter_rows(min_row=r, max_row=r, values_only=True), ())
+        for c, val in enumerate(row):
+            k = _key(val)
+            if not k:
+                continue
+            if "на единиц" in k and ("текущ" in k or "в текущ" in k):
+                if res["unit_price"] is None:
+                    res["unit_price"] = c
+            elif "всего" in k and ("текущ" in k or "в текущ" in k):
+                if res["total_price"] is None:
+                    res["total_price"] = c
+            elif "на единиц" in k and ("базисн" in k or "в базисн" in k):
+                if res["base_price"] is None:
+                    res["base_price"] = c
+    return res
+
+
 def _find_header(ws, doc: str, scan_rows: int = 100):
     """Находит строку заголовков и карту колонок: num, ref, name, unit, qty."""
     for row_idx, row in enumerate(
@@ -189,12 +217,17 @@ def _find_header(ws, doc: str, scan_rows: int = 100):
         if doc != "VOR":
             qty_col, row_idx = _refine_qty_col(ws, row_idx, qty_col)
 
+        price_cols = _find_price_cols(ws, row_idx) if doc != "VOR" else {}
+
         return row_idx, {
             "num": num_col,
             "ref": ref_col,
             "name": name_col,
             "unit": unit_col,
             "qty": qty_col,
+            "unit_price": price_cols.get("unit_price"),
+            "total_price": price_cols.get("total_price"),
+            "base_price": price_cols.get("base_price"),
         }
     return None
 
@@ -281,6 +314,17 @@ def _read_sheet(ws, doc: str):
         # В ЛСР номер позиции — целое число. Строки ресурсов («Н», «П,Н», «1.1») — это не
         # самостоятельные позиции, их пропускаем. В ВОР допускаем номера вида «1.1».
         if not num or not re.fullmatch(r"\d+" if doc != "VOR" else r"\d+(?:\.\d+)*", num):
+            if doc == "LSR" and items:
+                name_check = _s(cell(cols["name"]) or "").lower()
+                if "всего по позиции" in name_check:
+                    raw_tp = cell(cols.get("total_price"))
+                    tp = _f(raw_tp)
+                    if tp is not None and tp > 0:
+                        last_item = items[-1]
+                        if last_item.total_price is None:
+                            last_item.total_price = round(tp, 2)
+                        if last_item.unit_price is None and last_item.qty and last_item.qty > 0:
+                            last_item.unit_price = round(tp / last_item.qty, 2)
             continue
 
         raw_ref = cell(cols["ref"]) if cols["ref"] is not None else ""
@@ -314,6 +358,29 @@ def _read_sheet(ws, doc: str):
         if unit == "%" or name_lower in {"наименование работ и затрат", "наименование", "наименование работ"}:
             continue
 
+        unit_price = None
+        total_price = None
+        base_price = None
+
+        if doc != "VOR":
+            raw_up = cell(cols.get("unit_price"))
+            raw_tp = cell(cols.get("total_price"))
+            raw_bp = cell(cols.get("base_price"))
+
+            up = _f(raw_up)
+            tp = _f(raw_tp)
+            bp = _f(raw_bp)
+
+            if up is not None and up > 0:
+                unit_price = round(up, 2)
+            elif tp is not None and tp > 0 and qty is not None and qty > 0:
+                unit_price = round(tp / qty, 2)
+
+            if tp is not None and tp > 0:
+                total_price = round(tp, 2)
+            if bp is not None and bp > 0:
+                base_price = round(bp, 2)
+
         item = Item(
             doc=doc,
             row=row_idx,
@@ -325,7 +392,10 @@ def _read_sheet(ws, doc: str):
             sheet=ws.title,
             section=current_section or ws.title,
             code=ref if doc != "VOR" else "",
-            characteristics=extract_technical_characteristics(name)
+            characteristics=extract_technical_characteristics(name),
+            unit_price=unit_price,
+            total_price=total_price,
+            base_price=base_price
         )
         items.append(item)
 
