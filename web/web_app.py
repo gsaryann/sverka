@@ -255,6 +255,19 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
         )
         stats[high_status] = stats.get(high_status, 0) + 1
 
+        unit_price = getattr(l, 'unit_price', None) if l else None
+        total_price = getattr(l, 'total_price', None) if l else None
+
+        # Расчёт финансового риска по реальной расценке ЛСР:
+        # Риск = |объём ЛСР - объём ВОР| * цена за единицу
+        risk_rub = 0.0
+        if v and l and v.qty is not None and l.qty is not None:
+            mult = float(r.get('unit_multiplier') or 1.0)
+            norm_v = float(v.qty) / mult if mult else float(v.qty)
+            if abs(float(l.qty) - norm_v) > 1e-4:
+                if unit_price is not None and unit_price > 0:
+                    risk_rub = round(abs(float(l.qty) - norm_v) * float(unit_price), 2)
+
         rows.append({
             'ВОР №': str(v.num) if v else '',
             'ВОР строка': v.row if v else (r.get('vor_row') or ''),
@@ -269,6 +282,9 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
             'ЛСР: наименование': l.name if l else '',
             'ЛСР: единица': l.unit if l else '',
             'ЛСР: количество': l.qty if l else '',
+            'unit_price': unit_price,
+            'total_price': total_price,
+            'financial_risk': risk_rub,
             'Текстовое сходство': round(float(r.get('text_sim', 0.0)), 4),
             'Уверенность': round(float(r.get('score', 0.0)), 4),
             'Результат алгоритма': status,

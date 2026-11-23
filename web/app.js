@@ -562,8 +562,13 @@ async function runCompare() {
 
       const vv = r['ВОР: количество'] != null && r['ВОР: количество'] !== '' ? parseFloat(r['ВОР: количество']) : null;
       const lv = r['ЛСР: количество'] != null && r['ЛСР: количество'] !== '' ? parseFloat(r['ЛСР: количество']) : null;
-      const pr = parseFloat(r['unit_price'] || r['Цена за единицу'] || 0) || (vv && lv && vv !== lv ? Math.round(1500 + (idx * 471) % 15000) : 0);
-      const risk = (vv != null && lv != null && vv !== lv && pr > 0) ? Math.round((lv - vv) * pr) : 0;
+      const pr = (r['unit_price'] != null && r['unit_price'] !== '') ? parseFloat(r['unit_price']) : null;
+      let risk = 0;
+      if (r['financial_risk'] != null && r['financial_risk'] !== '') {
+        risk = Math.round(parseFloat(r['financial_risk']));
+      } else if (vv != null && lv != null && vv !== lv && pr != null && pr > 0) {
+        risk = Math.round(Math.abs(lv - vv) * pr);
+      }
 
       return {
         n: idx + 1,
