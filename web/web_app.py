@@ -145,9 +145,22 @@ app = Flask(
     static_url_path=""
 )
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
-app.secret_key = os.getenv("SECRET_KEY", "sverkasmet-secure-key-2026-b2b")
+
+# Конфигурация безопасности сессий (защита от подделки cookie)
+_env_name = os.getenv("ENV", "development").lower()
+_secret = os.getenv("SECRET_KEY")
+if not _secret:
+    if _env_name == "production" or os.getenv("FLASK_ENV") == "production":
+        raise RuntimeError("CRITICAL SECURITY ERROR: Переменная SECRET_KEY обязательна в production-окружении!")
+    import secrets
+    _secret = secrets.token_hex(32)
+    logging.warning("SECRET_KEY не задан в .env. Для разработки сгенерирован временный 256-битный ключ: %s...", _secret[:8])
+app.secret_key = _secret
+
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+if _env_name == "production":
+    app.config["SESSION_COOKIE_SECURE"] = True
 
 
 @app.teardown_appcontext
@@ -875,9 +888,13 @@ def api_project_save():
     db_sess = SessionLocal()
     try:
         if not user_id:
+            if os.getenv("ENV", "development").lower() == "production":
+                return jsonify({'error': 'Необходима авторизация для сохранения проекта'}), 401
             demo_user = db_sess.query(User).filter(text("lower(email) = 'demo@sverkasmet.ru'")).first()
             if demo_user:
                 user_id = demo_user.id
+            else:
+                return jsonify({'error': 'Пользователь не найден. Пожалуйста, выполните вход.'}), 401
 
         project = AuditProject(
             user_id=user_id,

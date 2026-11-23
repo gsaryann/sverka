@@ -23,8 +23,16 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_
 # Загрузка настроек из .env
 load_dotenv(Path(__file__).parent / ".env")
 
+# Режим окружения: development / production
+IS_PROD = os.getenv("ENV", "development").lower() == "production"
+
 DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASS = os.getenv("DB_PASS", "P@ssw0rd")
+DB_PASS = os.getenv("DB_PASS")
+if not DB_PASS:
+    if IS_PROD:
+        raise RuntimeError("CRITICAL SECURITY ERROR: Переменная DB_PASS обязательна в production-окружении!")
+    DB_PASS = "P@ssw0rd"
+
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
 DB_NAME = os.getenv("DB_NAME", "sverka_db")
@@ -401,22 +409,29 @@ def init_db():
         """))
         conn.commit()
 
-    session = SessionLocal()
-    try:
-        demo_user = session.query(User).filter(text("lower(email) = 'demo@sverkasmet.ru'")).first()
-        if not demo_user:
-            demo_user = User(
-                email="demo@sverkasmet.ru",
-                full_name="Саргсян Гагик (Ведущий сметчик)",
-                role="lead",
-                company="ООО «СтройЭкспертиза»"
-            )
-            demo_user.set_password("P@ssw0rd")
-            session.add(demo_user)
-            session.commit()
-            print("Демо-пользователь успешно создан: demo@sverkasmet.ru / P@ssw0rd")
-    finally:
-        session.close()
+    # Создание демо-аккаунта разрешено ТОЛЬКО для локальной демонстрации/разработки,
+    # если включен SEED_DEMO_USER=1, и строго заблокировано в production-окружении
+    seed_demo = os.getenv("SEED_DEMO_USER", "1").lower() in ("1", "true", "yes")
+    if seed_demo and not IS_PROD:
+        session = SessionLocal()
+        try:
+            demo_user = session.query(User).filter(text("lower(email) = 'demo@sverkasmet.ru'")).first()
+            if not demo_user:
+                demo_pass = os.getenv("DEMO_USER_PASSWORD", DB_PASS)
+                demo_user = User(
+                    email="demo@sverkasmet.ru",
+                    full_name="Саргсян Гагик (Ведущий сметчик)",
+                    role="lead",
+                    company="ООО «СтройЭкспертиза»"
+                )
+                demo_user.set_password(demo_pass)
+                session.add(demo_user)
+                session.commit()
+                print("Локальный демо-пользователь инициализирован: demo@sverkasmet.ru")
+        finally:
+            session.close()
+    else:
+        print("Безопасный/Production режим: автоматическое создание демо-пользователя отключено.")
 
 
 if __name__ == "__main__":
