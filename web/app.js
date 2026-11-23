@@ -367,10 +367,16 @@ function render(sc) {
   renderChips();
   renderHead();
   const v = renderTable();
-  $('#insp').classList.toggle('hide', !S.open);
-  if (S.open) renderInsp(v);
+  const shouldShowInsp = Boolean(S.open && ROWS.length > 0);
+  $('#insp').classList.toggle('hide', !shouldShowInsp);
+  if (shouldShowInsp) renderInsp(v);
   renderFoot(v);
-  $('#bTog').classList.toggle('p', S.open);
+  const bTog = $('#bTog');
+  if (bTog) {
+    bTog.classList.toggle('p', shouldShowInsp);
+    bTog.disabled = (ROWS.length === 0);
+    bTog.title = ROWS.length ? 'Свернуть / развернуть панель инспектора (Esc)' : 'Панель доступна после загрузки сметных документов';
+  }
   if (sc) document.querySelector('tr.sel')?.scrollIntoView({ block: 'nearest' });
 }
 
@@ -417,7 +423,14 @@ function move(d) {
   render(true);
 }
 
-const toggle = f => { S.open = (f === undefined ? !S.open : f); render(); };
+const toggle = f => {
+  if (!ROWS.length) {
+    toast('Панель инспектора доступна после загрузки сметных документов');
+    return;
+  }
+  S.open = (f === undefined ? !S.open : f);
+  render();
+};
 const first = () => { const v = visible(); if (v.length && !v.some(r => r.n === S.sel)) S.sel = v[0].n; };
 
 // ==================== ОБРАБОТЧИКИ СОБЫТИЙ ТАБЛИЦЫ И ИНСПЕКТОРА ====================
