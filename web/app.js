@@ -168,6 +168,15 @@ function renderHead() {
 
 function renderTable() {
   const v = visible();
+  const c = f => ROWS.filter(r => r.st === f).length;
+  const emptyHtml = (S.fl === 'need' && !S.q) ? `
+    <tr><td colspan="8" style="padding:40px 20px;text-align:center;">
+      <div style="font-size:16px;font-weight:700;color:var(--ok);margin-bottom:6px;">🎉 В очереди нет позиций, требующих решения!</div>
+      <div class="mut" style="font-size:12.5px;margin-bottom:14px;">Все позиции документа сопоставлены в автоматическом режиме (точных ${c('ok')}, с пересчётом единиц ${c('unit')}).</div>
+      <button class="btn p" id="btn-show-all-empty">Показать все позиции (${ROWS.length})</button>
+    </td></tr>
+  ` : `<tr><td colspan="8" class="mut" style="padding:30px;text-align:center">Ничего не найдено</td></tr>`;
+
   $('#tb').innerHTML = v.length ? v.map(r => `
     <tr class="r${r.n === S.sel ? ' sel' : ''}" data-n="${r.n}">
       <td class="mono" style="text-align:center">${r.n}</td>
@@ -179,7 +188,7 @@ function renderTable() {
       <td class="mono">${r.risk > 0 ? `<b style="color:var(--diff)">${fm(r.risk)} ₽</b>` : '<span class="mut">—</span>'}</td>
       <td style="text-align:center;white-space:nowrap">${decCell(r)}</td>
     </tr>
-  `).join('') : `<tr><td colspan="8" class="mut" style="padding:30px;text-align:center">${S.fl === 'need' && !S.q ? '🎉 Все позиции, требующие решения, обработаны' : 'Ничего не найдено'}</td></tr>`;
+  `).join('') : emptyHtml;
   return v;
 }
 
@@ -296,17 +305,34 @@ function renderFoot(v) {
 
 function renderInfo() {
   const e = $('#info');
-  if (S.fl !== 'need' || S.q || !ROWS.length) {
+  if (S.q || !ROWS.length) {
     e.innerHTML = '';
     return;
   }
   const c = f => ROWS.filter(r => r.st === f).length;
-  e.innerHTML = `
-    <div class="box" style="margin:8px 12px 0;display:flex;gap:10px;align-items:center;padding:5px 10px;background:#EFF7F2;border-color:#C8E6C9;flex-wrap:wrap">
-      ✓ Сверено автоматически: <b>${c('ok') + c('unit')}</b> из ${ROWS.length} (точных ${c('ok')}, с пересчётом единиц ${c('unit')}). На ручной контроль: <b>${ROWS.filter(todo).length}</b>.
-      <button class="btn" id="showAll">Показать все ${ROWS.length}</button>
-    </div>
-  `;
+  const pending = ROWS.filter(todo).length;
+
+  if (pending === 0) {
+    e.innerHTML = `
+      <div class="box" style="margin:8px 12px 0;display:flex;gap:10px;align-items:center;padding:6px 12px;background:#EFF7F2;border-color:#C8E6C9;flex-wrap:wrap">
+        <span style="color:var(--ok);font-weight:700;">✓ Все ${ROWS.length} позиций сопоставлены без расхождений!</span>
+        <span class="mut" style="font-size:12px;">(точных совпадений: <b>${c('ok')}</b>, с пересчётом единиц: <b>${c('unit')}</b>). Ручной контроль не требуется.</span>
+      </div>
+    `;
+    return;
+  }
+
+  if (S.fl === 'need') {
+    e.innerHTML = `
+      <div class="box" style="margin:8px 12px 0;display:flex;gap:10px;align-items:center;padding:5px 10px;background:#EFF7F2;border-color:#C8E6C9;flex-wrap:wrap">
+        ✓ Сверено автоматически: <b>${c('ok') + c('unit')}</b> из ${ROWS.length} (точных ${c('ok')}, с пересчётом единиц ${c('unit')}). На ручной контроль: <b>${pending}</b>.
+        <button class="btn" id="showAll">Показать все ${ROWS.length}</button>
+      </div>
+    `;
+    return;
+  }
+
+  e.innerHTML = '';
 }
 
 function render(sc) {
@@ -369,6 +395,12 @@ const first = () => { const v = visible(); if (v.length && !v.some(r => r.n === 
 
 // ==================== ОБРАБОТЧИКИ СОБЫТИЙ ТАБЛИЦЫ И ИНСПЕКТОРА ====================
 $('#tb').onclick = e => {
+  if (e.target.id === 'btn-show-all-empty') {
+    S.fl = 'all';
+    first();
+    render(true);
+    return;
+  }
   const tr = e.target.closest('tr[data-n]');
   if (!tr) return;
   const n = +tr.dataset.n;
@@ -706,6 +738,8 @@ async function loadProjectFromDB(id) {
     });
 
     $('#files-lbl').textContent = `${data.title} (#${data.id}) ▾`;
+    const pendingCount = ROWS.filter(need).length;
+    S.fl = pendingCount > 0 ? 'need' : 'all';
     first();
     S.sel = S.sel ?? visible()[0]?.n;
     render(true);
@@ -818,7 +852,11 @@ async function runCompare() {
     });
 
     S.dec = {};
-    S.fl = 'need';
+    const pendingCount = ROWS.filter(need).length;
+    // Автоматический выбор приоритетного раздела:
+    // Если есть позиции на ручной контроль -> открываем очередь 'need' (Ждут решения).
+    // Если в файлах всё четко и расхождений нет -> открываем 'all' (Все), чтобы сразу показать все строки!
+    S.fl = pendingCount > 0 ? 'need' : 'all';
     first();
     S.sel = S.sel ?? visible()[0]?.n;
     S.open = true;
@@ -839,7 +877,11 @@ async function runCompare() {
 
     closeM();
     render(true);
-    toast(`Сверка завершена: сопоставлено ${ROWS.length} позиций`);
+    if (pendingCount > 0) {
+      toast(`Сверка завершена: сопоставлено ${ROWS.length} поз. (требуют решения: ${pendingCount})`);
+    } else {
+      toast(`🎉 Все ${ROWS.length} позиций сопоставлены автоматически без расхождений!`);
+    }
   } catch (err) {
     toast('Сетевая ошибка: ' + err.message);
   } finally {
