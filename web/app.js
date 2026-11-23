@@ -1,630 +1,584 @@
-/* Клиентская логика инженерного терминала СверкаСмет (SmartMatcher · B2B SaaS) */
+/* Клиентская логика инженерного терминала СверкаСмет (SmartMatcher · B2B SaaS · Вариант E v2) */
 
-let activePreset = null;
-let currentProjectTitle = 'Новый проект аудита';
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+let ROWS = [];
+let currentProjectTitle = 'Сверка сметной документации';
 let currentProjectId = null;
 let currentUser = null;
-
-// Исходное состояние: документы не загружены (чистый терминал готов к загрузке файлов инженером)
-let ROWS = [];
-
-const LABEL = {
-  ok: "Совпало",
-  part: "Требует проверки",
-  diff: "Коллизия параметров",
-  none: "Нет в смете",
-  rej: "Пара отклонена"
-};
-
-const ORD = { none: 0, diff: 1, part: 2, ok: 3 };
-const CARDS = [
-  ["all", "Всего позиций", "ink"],
-  ["ok", "Совпало", "ok"],
-  ["part", "Требует проверки", "part"],
-  ["diff", "Коллизии / Риски", "diff"],
-  ["none", "Нет в смете", "none"],
-  ["need", "Ждут решения", "part"]
-];
+let activePreset = null;
+let TH = 55;
 
 const S = {
+  saved: [],
   dec: {},
-  sel: 1,
-  fl: "all",
-  q: "",
-  sort: { k: "n", d: 1 },
-  fresh: false,
+  hist: [],
+  sel: null,
+  fl: 'need',
+  q: '',
+  sort: [{ k: 'n', d: 1 }],
   open: true
 };
 
-const $ = s => document.querySelector(s);
-const fmt = n => n == null ? "—" : String(n).replace(".", ",");
-const fm = n => String(Math.round(Math.abs(n || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-const money = n => (n < 0 ? "−" : n > 0 ? "+" : "") + fm(n) + " ₽";
+const fmt = n => (n == null || isNaN(n)) ? '—' : String(n).replace('.', ',');
+const fm = n => String(Math.round(Math.abs(n || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-const rej = r => r.ai && S.dec[r.n] === "no";
-const es = r => rej(r) ? "none" : r.s;
-const lab = r => {
-  if (rej(r)) return LABEL.rej;
-  if (S.dec[r.n] === "yes") return "Принято сметчиком";
-  if (r.cls) {
-    if (r.cls === "Совпало") return "Совпало";
-    if (r.cls.includes("пересчет")) return "Пересчёт единиц";
-    if (r.cls.includes("Кандидат") || r.cls.includes("проверка")) {
-      return (r.vv != null && r.lv != null && r.vv === r.lv) ? "Проверка наименования" : "Требует проверки";
+const STD = [10, 100, 1000, 10000];
+const mult = r => r.unit_multiplier || (r.lv ? Math.round(r.vv / r.lv) : 0);
+
+function classifyItem(r) {
+  let s = /пересчет/i.test(r.cls || '') ? 'unit' : (r.s || 'diff');
+  if (s === 'none' || r.lv == null) {
+    s = 'none';
+  } else if (s === 'unit') {
+    const f = r.unit_multiplier || (r.lv ? (r.vv / r.lv) : 1);
+    const k = Math.round(f);
+    if (!STD.includes(k) || Math.abs(f - k) > k * 0.01) {
+      s = 'diff';
+      r.unitWarn = Math.round(f * 100) / 100;
     }
-    if (r.cls.includes("характеристик") || r.cls.includes("параметр")) return "Коллизия параметров";
-    if (r.cls.includes("объем") || r.cls.includes("объём")) return "Расхождение объёма";
-    if (r.cls.includes("единиц")) return "Несовпадение единиц";
-    if (r.cls.includes("Нет в") || r.cls.includes("Не найден")) return "Нет в смете";
-    if (r.cls.includes("Дубль")) return "Дубль в смете";
-    return r.cls;
   }
-  // Запасной вывод по данным объёма и подобия
-  if (r.lv == null) return "Нет в смете";
-  if (r.vv !== r.lv) return "Расхождение объёма";
-  if (r.sim < 55) return "Проверка наименования";
-  return LABEL[r.s] || r.s;
-};
-const pend = r => r.s !== "ok" && !S.dec[r.n];
-const paired = r => es(r) !== "none" && r.lv != null;
-const dq = r => paired(r) ? (r.lv - r.vv) : -r.vv;
-const dqt = r => {
-  const d = dq(r);
-  return d === 0 ? "0" : (d > 0 ? "+" : "−") + fmt(Math.abs(d));
-};
-
-const tok = s => new Set(String(s || "").toLowerCase().replace(/[^а-яa-z0-9]+/g, " ").split(" ").filter(w => w.length > 2));
-const wn = w => (w || "").toLowerCase().replace(/[^а-яa-z0-9]+/g, "");
-const jac = (a, b) => {
-  const x = tok(a), y = tok(b);
-  if (!x.size || !y.size) return 0;
-  let i = 0;
-  x.forEach(w => { if (y.has(w)) i++; });
-  return i / (x.size + y.size - i);
-};
-
-function wdiff(a, b) {
-  const sa = new Set(String(a || "").split(/\s+/).map(wn));
-  const sb = new Set(String(b || "").split(/\s+/).map(wn));
-  const f = (t, o) => String(t || "").split(/\s+/).map(w => (!wn(w) || o.has(wn(w))) ? w : `<mark class="df">${w}</mark>`).join(" ");
-  return [f(a, sb), f(b, sa)];
+  r.st = s;
 }
 
-function acts(r, big) {
-  if (r.s === "ok") return '<span class="auto">Авто</span>';
-  const d = S.dec[r.n];
-  const y = r.ai ? "✓ Да" : "Принять";
-  const n = r.ai ? "✕ Нет" : "В правку";
-  if (d) {
-    return `<span class="acts"><span class="done ${d}">${d === "yes" ? "Принято" : (r.ai ? "Отклонено" : "В правку")}</span><button class="btn-text" style="text-decoration:underline;" onclick="undoDecision(${r.n})">Отменить</button></span>`;
-  }
-  return `<span class="acts"><button class="btn yes${big ? " big" : ""}" onclick="makeDecision(${r.n}, 'yes')">${y}</button><button class="btn no${big ? " big" : ""}" onclick="makeDecision(${r.n}, 'no')">${n}</button></span>`;
+const todo = r => ['part', 'diff', 'none'].includes(r.st);
+const need = r => todo(r) && !S.dec[r.n];
+
+const LAB = r => {
+  if (r.st === 'none') return 'Нет в смете';
+  if (r.st === 'ok') return 'Совпало';
+  if (r.st === 'unit') return 'Пересчёт ед.';
+  if (r.st === 'diff') return 'Расхождение объёма';
+  return (r.vv === r.lv) ? 'Проверка наименования' : 'Требует проверки';
+};
+
+const ORD = { none: 0, diff: 1, part: 2, unit: 3, ok: 4 };
+const KEY = {
+  n: r => r.n,
+  st: r => ORD[r.st] ?? 2,
+  sim: r => r.sim || 0,
+  risk: r => r.risk || 0,
+  vor: r => r.vor || ''
+};
+
+const PRE = {
+  n: [{ k: 'n', d: 1 }],
+  risk: [{ k: 'risk', d: -1 }, { k: 'st', d: 1 }],
+  sim: [{ k: 'sim', d: 1 }],
+  prio: [{ k: 'st', d: 1 }, { k: 'risk', d: -1 }, { k: 'sim', d: 1 }]
+};
+
+const COLS = [
+  ['n', '№'],
+  ['vor', 'Позиция ВОР'],
+  [null, 'Расценка ЛСР'],
+  [null, 'Объём: проект → смета'],
+  ['st', 'Статус'],
+  ['sim', 'Сход.'],
+  ['risk', 'Риск'],
+  [null, 'Решение']
+];
+
+const wn = w => (w || '').toLowerCase().replace(/[^а-яa-z0-9]+/g, '');
+function wdiff(a, b) {
+  const sa = new Set((a || '').split(/\s+/).map(wn));
+  const sb = new Set((b || '').split(/\s+/).map(wn));
+  const f = (t, o) => (t || '').split(/\s+/).map(w => !wn(w) || o.has(wn(w)) ? esc(w) : `<mark>${esc(w)}</mark>`).join(' ');
+  return [f(a, sb), f(b, sa)];
 }
 
 function visible() {
   const q = S.q.trim().toLowerCase();
-  const l = ROWS.filter(r => {
-    if (S.fl === "need" && !pend(r)) return false;
-    if (["ok", "part", "diff", "none"].includes(S.fl) && es(r) !== S.fl) return false;
-    return !q || (String(r.vor || "") + " " + String(r.lsr || "") + " " + String(r.code || "")).toLowerCase().includes(q);
+  return ROWS.filter(r => {
+    if (S.fl === 'need' && !need(r)) return false;
+    if (S.fl === 'done' && !S.dec[r.n]) return false;
+    if (['ok', 'unit', 'part', 'diff', 'none'].includes(S.fl) && r.st !== S.fl) return false;
+    if (S.fl === 'risk' && !(r.risk > 0)) return false;
+    return !q || (r.vor + ' ' + (r.lsr || '') + ' ' + (r.code || '')).toLowerCase().includes(q) || String(r.n) === q;
+  }).sort((a, b) => {
+    for (const { k, d } of S.sort) {
+      const x = KEY[k](a), y = KEY[k](b);
+      const c = typeof x === 'string' ? x.localeCompare(y, 'ru') : x - y;
+      if (c) return c * d;
+    }
+    return a.n - b.n;
   });
-  const k = S.sort.k, d = S.sort.d;
-  const g = r => k === "n" ? r.n : k === "st" ? (ORD[es(r)] ?? 0) : r.sim;
-  return l.sort((a, b) => (g(a) - g(b)) * d || a.n - b.n);
 }
 
-function renderCards() {
-  const T = ROWS.length || 1;
-  const cnt = { all: ROWS.length, ok: 0, part: 0, diff: 0, none: 0, need: ROWS.filter(pend).length };
-  ROWS.forEach(r => {
-    const st = es(r);
-    if (cnt[st] !== undefined) cnt[st]++;
-    else cnt.diff++;
-  });
-
-  const cardsEl = $("#cards");
-  if (cardsEl) {
-    cardsEl.innerHTML = CARDS.map(c => `
-      <button class="sc s-${c[2]}" style="${c[2] === "ink" ? "--c:var(--ink)" : ""}" onclick="setFilter('${c[0]}')" aria-pressed="${S.fl === c[0]}">
-        <span class="l"><i></i>${c[1]}</span>
-        <span class="nbig dn">${cnt[c[0]] || 0}<small>${Math.round((cnt[c[0]] || 0) / T * 100)}%</small></span>
-      </button>
-    `).join("");
+function volCell(r) {
+  if (r.lv == null) return `${fmt(r.vv)} → —`;
+  if (r.st === 'unit') {
+    return `${fmt(r.vv)} → ${fmt(r.lv)} <span class="pl s-unit" title="Пересчёт единиц: ЛСР в укрупнённых единицах, объёмы эквивалентны">×${mult(r)}</span>`;
   }
-
-  const prob = ROWS.filter(r => r.s !== "ok");
-  const done = prob.filter(r => S.dec[r.n]).length;
-  const stripEl = $("#strip");
-  if (stripEl) {
-    stripEl.innerHTML = `
-      <span>Результат аудита:</span>
-      <div class="seg" role="img" aria-label="Распределение">
-        ${["ok", "part", "diff", "none"].map(k => `<i class="s-${k}" style="flex:${cnt[k] || 0}"></i>`).join("")}
-      </div>
-      <span>Решено сметчиком: <b>${done}</b> из <b>${prob.length}</b></span>
-    `;
+  if (r.vv !== r.lv) {
+    const d = +(r.lv - r.vv).toFixed(2);
+    return `${fmt(r.vv)} → <b style="color:var(--diff)">${fmt(r.lv)}</b> <span class="pl s-diff">Δ ${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}</span>`;
   }
+  return `${fmt(r.vv)} → ${fmt(r.lv)}`;
 }
 
-function panel(r) {
-  const s = es(r), vis = visible(), i = vis.findIndex(x => x.n === r.n), isP = paired(r);
-  const [da, db] = r.lsr ? wdiff(r.vor, r.lsr) : [r.vor, ""];
-  const vdf = isP && r.lv !== r.vv, mx = Math.max(r.vv || 1, r.lv || 0);
-  const tsim = r.lsr ? Math.round(jac(r.vor, r.lsr) * 100) : 0;
-  const common = r.lsr ? [...tok(r.vor)].filter(w => tok(r.lsr).has(w)) : [];
-  const src = r.ai ? "ИИ (Алиса, YandexGPT)" : "SmartMatcher v2 (алгоритм)";
-  const TH = parseFloat(document.getElementById('w-thr')?.value || 0.55) * 100;
-  const above = r.sim >= TH;
-  const thrTxt = !r.lsr
-    ? `Подходящая пара в смете не найдена. Ближайший кандидат: ${r.near || "нет"}.`
-    : (above ? `Сходство ${r.sim}% выше порога ${Math.round(TH)}%.` : `Сходство ${r.sim}% ниже порога ${Math.round(TH)}%: пару предложил ИИ, требуется решение инженера.`);
+function decCell(r) {
+  const d = S.dec[r.n];
+  if (!todo(r) && !d) {
+    return '<span class="mut">Авто</span> <button class="a no" data-a="no" title="Переопределить: в правку (N)">✕</button>';
+  }
+  if (d) {
+    return `<span class="pl ${d === 'yes' ? 's-ok' : 's-diff'}">${d === 'yes' ? '✓ Принято' : '↪ В правку'}</span> <button class="a" data-a="u" title="Отменить">↶</button>`;
+  }
+  return `<button class="a yes" data-a="yes" title="Принять (Y)">✓</button> <button class="a no" data-a="no" title="В правку (N)">✕</button>`;
+}
 
-  const sig = r.lsr ? `
-    <div><span class="${tsim >= TH ? "y" : "n"}">${tsim >= TH ? "✓" : "✕"}</span><span>Сходство формулировок: ${tsim}%${common.length ? `<div class="wds">${common.map(w => `<span>${w}</span>`).join("")}</div>` : ""}</span></div>
-    <div><span class="y">✓</span><span>Единицы измерения сопоставимы: ${r.u || "—"}</span></div>
-    <div><span class="${vdf ? "n" : "y"}">${vdf ? "✕" : "✓"}</span><span>Объём ${vdf ? `различается: ${fmt(r.vv)} и ${fmt(r.lv)} ${r.u}` : "полностью совпадает"}</span></div>
-    <div><span class="q">i</span><span>Источник сопоставления: ${src}</span></div>
-  ` : `
-    <div><span class="n">✕</span><span>Расценка выше порога не обнаружена в смете</span></div>
-    <div><span class="q">i</span><span>Источник проверки: ${src}</span></div>
-  `;
+function renderChips() {
+  const c = f => ROWS.filter(r => f === 'all' ? 1 : f === 'need' ? need(r) : f === 'done' ? !!S.dec[r.n] : r.st === f).length;
+  $('#chips').innerHTML = [
+    ['need', '⏳ Ждут решения'],
+    ['done', '✓ Решено'],
+    ['all', 'Все'],
+    ['ok', 'Совпало'],
+    ['unit', 'Пересчёт ед.'],
+    ['part', 'Проверка'],
+    ['diff', 'Коллизия'],
+    ['none', 'Нет в смете']
+  ].map(([f, l]) => `<button class="chip${S.fl === f ? ' on' : ''}"${f === 'none' ? ' style="color:var(--bad)"' : ''} data-f="${f}">${l} <b>${c(f)}</b></button>`).join('');
 
-  let cost;
-  if (r.s === "ok") {
-    cost = "";
-  } else if (isP && r.pr) {
-    const pc = (r.vv || 0) * r.pr, ec = (r.lv || 0) * r.pr, dc = ec - pc;
-    cost = `
-      <div class="impact">
-        <div class="vol">Финансовый риск расхождения: расценка ${fm(r.pr)} ₽ за ${r.u} из сметы</div>
-        <b style="color:${dc === 0 ? "var(--text)" : dc > 0 ? "var(--diff)" : "var(--bad)"}">${dc === 0 ? "0 ₽" : money(dc)}</b>
-        <div class="vol">По проекту: ${fm(pc)} ₽ · По смете: ${fm(ec)} ₽</div>
-      </div>
-    `;
-  } else if (r.risk) {
-    cost = `
-      <div class="impact">
-        <div class="vol">Оценка потенциального финансового риска:</div>
-        <b style="color:var(--diff);">${money(r.risk)}</b>
-      </div>
-    `;
+  $('#risk').className = 'chip' + (S.fl === 'risk' ? ' on' : '');
+  const ri = riskInfo();
+  $('#risk').title = `Считается по расценкам ЛСР: ${ri.known} из ${ri.known + ri.unknown} расхождений объёма`;
+  $('#risk').innerHTML = `💸 Финансовый риск: ${ri.known ? `<b style="color:var(--diff)">${fm(ri.sum)} ₽</b>` : ri.unknown ? '<b class="mut">не рассчитан</b>' : '<b>0 ₽</b>'}${ri.unknown ? ` <span class="mut">· без цены: ${ri.unknown}</span>` : ''}`;
+}
+
+function riskInfo() {
+  const known = ROWS.filter(r => r.risk > 0);
+  const unknown = ROWS.filter(r => todo(r) && r.lv != null && r.vv !== r.lv && !(r.risk > 0));
+  return {
+    known: known.length,
+    unknown: unknown.length,
+    sum: known.reduce((s, r) => s + r.risk, 0)
+  };
+}
+
+function renderHead() {
+  $('#hd').innerHTML = COLS.map(([k, l]) => {
+    const i = S.sort.findIndex(s => s.k === k);
+    return `<th class="${k ? 'so' : ''}"${k ? ` data-k="${k}"` : ''}>${l}${i < 0 ? '' : ` <span class="mono">${S.sort.length > 1 ? i + 1 : ''}${S.sort[i].d > 0 ? '▲' : '▼'}</span>`}</th>`;
+  }).join('');
+}
+
+function renderTable() {
+  const v = visible();
+  $('#tb').innerHTML = v.length ? v.map(r => `
+    <tr class="r${r.n === S.sel ? ' sel' : ''}" data-n="${r.n}">
+      <td class="mono" style="text-align:center">${r.n}</td>
+      <td><div class="cl"><b>${esc(r.vor)}</b></div></td>
+      <td>${r.lsr ? `<div class="cl">${esc(r.lsr)}</div><div class="mono mut" style="font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.code || '')}</div>` : '<span class="mut">нет в смете</span>'}</td>
+      <td class="mono" style="white-space:nowrap">${volCell(r)} <span class="mut">${esc(r.u || '')}</span></td>
+      <td><span class="pl s-${r.st}">${LAB(r)}</span></td>
+      <td class="mono mut">${r.sim}%</td>
+      <td class="mono">${r.risk > 0 ? `<b style="color:var(--diff)">${fm(r.risk)} ₽</b>` : '<span class="mut">—</span>'}</td>
+      <td style="text-align:center;white-space:nowrap">${decCell(r)}</td>
+    </tr>
+  `).join('') : `<tr><td colspan="8" class="mut" style="padding:30px;text-align:center">${S.fl === 'need' && !S.q ? '🎉 Все позиции, требующие решения, обработаны' : 'Ничего не найдено'}</td></tr>`;
+  return v;
+}
+
+function renderInsp(v) {
+  const r = ROWS.find(x => x.n === S.sel);
+  const el = $('#insp');
+  if (!r) { el.innerHTML = ''; return; }
+
+  const i = v.findIndex(x => x.n === r.n);
+  const d = S.dec[r.n];
+  const [da, db] = r.lsr ? wdiff(r.vor, r.lsr) : [esc(r.vor), ''];
+  const mx = Math.max(r.vv || 1, r.lv || 0);
+  const ok = r.sim >= TH;
+  const c = ok ? 'var(--ok)' : 'var(--part)';
+
+  let vol;
+  if (r.lv == null) {
+    vol = 'В смете пары нет.';
+  } else if (r.st === 'unit') {
+    vol = `ВОР: <b>${fmt(r.vv)} ${esc(r.u)}</b> · ЛСР: <b>${fmt(r.lv)}</b> в укрупнённых единицах (×${mult(r)}). Объёмы эквивалентны, расхождения нет.`;
+  } else if (r.vv === r.lv) {
+    vol = `Объём совпадает: <b>${fmt(r.vv)} ${esc(r.u)}</b>`;
   } else {
-    cost = `<div class="impact no">Влияние на стоимость не рассчитано: в ЛСР не указана единичная цена для данной строки.</div>`;
+    vol = `
+      <div style="display:grid;grid-template-columns:34px 1fr 80px;gap:4px 8px;align-items:center">
+        <span class="mut">ВОР</span>
+        <div class="bk"><i style="width:${(r.vv / mx) * 100}%"></i></div>
+        <b class="mono">${fmt(r.vv)}</b>
+        <span class="mut">ЛСР</span>
+        <div class="bk"><i style="width:${(r.lv / mx) * 100}%;background:var(--diff)"></i></div>
+        <b class="mono">${fmt(r.lv)}</b>
+      </div>
+    `;
   }
 
-  return `
-    <aside class="box panel s-${s}${S.fresh ? " fresh" : ""}" aria-label="Подробности позиции">
-      <div class="ph">
-        <div>
-          <h2>${r.vor}</h2>
-          <span class="pill s-${s}">${lab(r)}</span>
-        </div>
-        <div class="nav">
-          <button class="btn ic" onclick="moveNav(-1)" aria-label="Предыдущая">↑</button>
-          <button class="btn ic" onclick="moveNav(1)" aria-label="Следующая">↓</button>
-          <button class="btn ic" onclick="closePanel()" aria-label="Закрыть">✕</button>
-        </div>
-      </div>
-      <div class="pb">
-        <div class="sim">
-          <div class="top2">
-            <div>
-              <div class="big1">${r.sim}%</div>
-              <div class="vol">сходство${i >= 0 ? ` · строка ${i + 1} из ${vis.length}` : ""}</div>
-            </div>
-            <div class="vol" style="text-align:right">ВОР поз. ${r.vor_num || r.n}<br>${r.lsr ? `ЛСР поз. №${r.lsr_num || r.ln || '—'}` : "в смете нет пары"}</div>
-          </div>
-          <div class="thr" role="img" aria-label="Сходство ${r.sim}%, порог ${Math.round(TH)}%">
-            <i style="width:${Math.min(r.sim, 100)}%"></i>
-            <b style="left:${Math.min(TH, 100)}%"></b>
-            <em style="left:${Math.min(TH, 100)}%">порог ${Math.round(TH)}%</em>
-          </div>
-          <div class="vol">${thrTxt}</div>
-        </div>
+  if (r.unitWarn) {
+    vol += `<div style="color:var(--diff);margin-top:6px">⚠ Отношение объёмов ×${r.unitWarn} не равно стандартному коэффициенту пересчёта (10/100/1000/10000): возможен завышенный или заниженный объём.</div>`;
+  }
 
-        <div>
-          <h3>Сравнение параметров</h3>
-          <table class="cmp">
-            <thead><tr><th>Параметр</th><th>ВОР (проект)</th><th>ЛСР (смета)</th></tr></thead>
-            <tbody>
-              <tr><td>Наименование</td><td>${da}</td><td>${r.lsr ? db : "подходящей расценки нет"}</td></tr>
-              <tr><td>Объём</td><td>${fmt(r.vv)} ${r.u || ""}</td><td class="${vdf ? "df" : ""}">${r.lv == null ? "—" : fmt(r.lv) + " " + (r.u || "")}</td></tr>
-              <tr><td>Шифр нормы</td><td>—</td><td class="code">${r.code || "—"}</td></tr>
-            </tbody>
-          </table>
-          ${r.lv != null ? `
-            <div class="vb">
-              <span>ВОР</span>
-              <div class="t"><i style="width:${Math.min((r.vv || 0) / mx * 100, 100)}%"></i></div>
-              <b class="dn">${fmt(r.vv)} ${r.u || ""}</b>
-              <span>ЛСР</span>
-              <div class="t"><i class="l" style="width:${Math.min((r.lv || 0) / mx * 100, 100)}%"></i></div>
-              <b class="dn">${fmt(r.lv)} ${r.u || ""}</b>
-            </div>
-          ` : ""}
-        </div>
-
-        <div>
-          <h3>Обоснование решения</h3>
-          <div class="sig">${sig}</div>
-          <p class="vol" style="margin-top:8px;">${r.note || ""}</p>
-        </div>
-
-        ${cost}
-      </div>
-
-      <div class="pa">
-        ${r.s === "ok" ? '<span class="auto">Совпало автоматически, решение не требуется.</span>' : acts(r, true)}
-        <span style="flex:1;"></span>
-        <span class="hint"><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Y</kbd> <kbd>N</kbd> <kbd>Esc</kbd></span>
-      </div>
-    </aside>
-  `;
-}
-
-function renderWork() {
-  const vis = visible(), sel = ROWS.find(r => r.n === S.sel);
-  const th = (k, l, cls) => `<th class="${cls || ""}" ${k ? `onclick="setSort('${k}')"` : ""}>${l}${S.sort.k === k ? (S.sort.d > 0 ? " ▲" : " ▼") : ""}</th>`;
-  const rows = vis.map(r => {
-    const s = es(r), d = dq(r) !== 0 && paired(r);
-    return `
-      <tr class="row s-${s}${r.n === S.sel ? " sel" : ""}" onclick="selectRow(${r.n})">
-        <td class="c1 dn">${r.n}</td>
-        <td class="c2 nm">${r.vor}</td>
-        <td>
-          ${r.lsr ? `<div class="nm" style="font-weight:400">${r.lsr}</div><div class="vol">${r.code ? `<span class="code">${r.code}</span> · ` : ""}ЛСР №${r.lsr_num || r.ln || '—'}</div>` : '<span class="vol">нет в смете</span>'}
-        </td>
-        <td class="dn vv${d ? " d" : ""}">${fmt(r.vv)} → ${r.lv == null ? "—" : d ? `<b>${fmt(r.lv)}</b>` : fmt(r.lv)} <span class="vol">${r.u || ""}</span></td>
-        <td><span class="pill s-${s}">${lab(r)}</span></td>
-        <td>
-          <div class="simc">
-            <span><i style="width:${Math.min(r.sim, 100)}%"></i></span>
-            <b class="dn" style="font-weight:600;">${r.sim}%</b>
-          </div>
-        </td>
-        <td class="cr" onclick="event.stopPropagation();">${acts(r)}</td>
-      </tr>
-    `;
-  }).join("");
-
-  const prob = ROWS.filter(r => r.s !== "ok");
-  const done = prob.filter(r => S.dec[r.n]).length;
-  const table = `
+  const cost = !todo(r) ? '' : r.risk > 0 ? `
+    <div class="box" style="background:#FFF7ED;border-color:#FED7AA">
+      <h4>Финансовый риск</h4>
+      <b style="font-size:18px;color:var(--diff)">${fm(r.risk)} ₽</b>
+      ${r.pr ? `<div class="mut" style="font-size:11.5px;margin-top:3px;">расценка ${fm(r.pr)} ₽ за ${esc(r.u)}: проект ${fm(r.vv * r.pr)} ₽ · смета ${fm(r.lv * r.pr)} ₽</div>` : ''}
+    </div>
+  ` : `
     <div class="box">
-      <div class="tb">
-        <input class="search" id="q" type="search" placeholder="Поиск по названию или шифру" value="${(S.q || "").replace(/"/g, "&quot;")}" oninput="searchRows(this.value)">
-        <span class="sp"></span>
-        ${S.fl !== "all" || S.q ? '<button class="link" onclick="resetFilters()">Сбросить фильтры</button>' : ""}
-        <span class="hint">Кликните по строке, чтобы открыть карточку параметров</span>
-      </div>
-      <div class="tw">
-        <table>
-          <thead>
-            <tr>
-              ${th("n", "№", "c1")}
-              ${th("", "Позиция ВОР (проектная)", "c2")}
-              ${th("", "Расценка ЛСР (сметная)")}
-              ${th("", "Объём: проект → смета")}
-              ${th("st", "Статус")}
-              ${th("sim", "Сходство")}
-              ${th("", "Решение сметчика", "cr")}
-            </tr>
-          </thead>
-          <tbody>
-            ${ROWS.length === 0 ? `
-              <tr>
-                <td colspan="7" style="padding:48px 20px; text-align:center; color:var(--mut);">
-                  <div style="font-size:32px; margin-bottom:10px;">📁</div>
-                  <b style="font-size:15px; color:var(--ink);">Сметные документы ещё не загружены</b>
-                  <div style="font-size:13px; margin-top:6px; color:var(--mut);">
-                    Выберите файлы ведомости объёмов работ (ВОР) и сметы (ЛСР по 421/пр) выше и нажмите кнопку <b>«Сверить документы»</b>.
-                  </div>
-                </td>
-              </tr>
-            ` : (rows || '<tr><td colspan="7" style="padding:28px; text-align:center; color:var(--mut);">Ничего не найдено. Сбросьте фильтр или строку поиска.</td></tr>')}
-          </tbody>
-        </table>
-      </div>
-      <div class="sb">
-        <span>Показано <b>${vis.length}</b> из <b>${ROWS.length}</b> позиций</span>
-        <span>Решено сметчиком: <b>${done}</b> из <b>${prob.length}</b></span>
-        <span style="margin-left:auto;"><a href="/api/download_csv" style="color:var(--link); font-weight:600;">📥 Экспорт в CSV (Excel)</a></span>
-      </div>
+      <h4>Влияние на стоимость</h4>
+      ${r.pr ? '0 ₽ — объёмы совпадают' : 'не рассчитано: в ЛСР нет единичной цены'}
     </div>
   `;
 
-  const w = $("#work");
-  if (w) {
-    w.className = "work" + (sel && S.open ? " open" : "");
-    w.innerHTML = (sel && S.open ? panel(sel) : "") + table;
+  el.innerHTML = `
+    <div class="ih">
+      <div>
+        <b>#${r.n}</b> <span class="pl s-${r.st}">${LAB(r)}</span>
+        ${i >= 0 ? `<div class="mut" style="font-size:11.5px">строка ${i + 1} из ${v.length}</div>` : ''}
+      </div>
+      <div style="display:flex;gap:4px">
+        <button class="btn" data-nav="-1">↑</button>
+        <button class="btn" data-nav="1">↓</button>
+        <button class="btn" id="x">✕</button>
+      </div>
+    </div>
+    <div class="ib">
+      <div class="box">
+        <h4>Наименования (отличия выделены)</h4>
+        <div style="margin-bottom:6px"><span class="mut">ВОР:</span> ${da}</div>
+        <div><span class="mut">ЛСР:</span> ${r.lsr ? db : 'подходящей расценки нет'}</div>
+        ${r.code ? `<div class="mono" style="margin-top:6px;color:var(--ink)">${esc(r.code)}</div>` : ''}
+      </div>
+      <div class="box">
+        <h4>Объёмы</h4>
+        ${vol}
+      </div>
+      <div class="box">
+        <h4>Сходство ${r.sim}% · порог ${TH}%</h4>
+        <div class="thr"><i style="width:${Math.min(r.sim, 100)}%;background:${c}"></i><b style="left:${TH}%"></b></div>
+        <div class="mut">${ok ? 'Выше порога.' : 'Ниже порога: пара предложена по шифру/объёму, нужно решение сметчика.'}</div>
+        ${r.note ? `<div style="margin-top:6px;font-size:12px">${esc(r.note)}</div>` : ''}
+      </div>
+      ${cost}
+    </div>
+    <div class="if">
+      ${!todo(r) && !d ? `
+        <span class="mut">Авто · решение не требуется</span>
+        <span style="flex:1"></span>
+        <button class="btn" style="flex:none;color:#991B1B;border-color:#991B1B" data-a="no">✕ Переопределить <kbd>N</kbd></button>
+      ` : d ? `
+        <span class="pl ${d === 'yes' ? 's-ok' : 's-diff'}">${d === 'yes' ? '✓ Принято' : '↪ В правку'}</span>
+        <span style="flex:1"></span>
+        <button class="btn" data-a="u">↶ Отменить <kbd>Z</kbd></button>
+      ` : `
+        <button class="btn" style="color:#166534;border-color:#166534" data-a="yes">✓ Принять <kbd>Y</kbd></button>
+        <button class="btn" style="color:#991B1B;border-color:#991B1B" data-a="no">✕ В правку <kbd>N</kbd></button>
+      `}
+    </div>
+  `;
+}
+
+function renderFoot(v) {
+  const t = ROWS.filter(todo).length;
+  const n = ROWS.filter(r => todo(r) && S.dec[r.n]).length;
+  const fl = ROWS.filter(r => !todo(r) && S.dec[r.n]).length;
+  $('#foot').innerHTML = `
+    <span><kbd>↑</kbd><kbd>↓</kbd> навигация · <kbd>Y</kbd> принять · <kbd>N</kbd> в правку · <kbd>Z</kbd> отмена · <kbd>/</kbd> поиск · <kbd>Esc</kbd> панель</span>
+    <span style="flex:1"></span>
+    <span>Показано <b>${v.length}</b> из ${ROWS.length}</span>
+    ${fl ? `<span>Переопределено вручную: <b>${fl}</b></span>` : ''}
+    <span>Решено <b>${n}</b> из <b>${t}</b></span>
+    <span class="prog"><i style="width:${t ? (n / t * 100) : 100}%"></i></span>
+  `;
+}
+
+function renderInfo() {
+  const e = $('#info');
+  if (S.fl !== 'need' || S.q || !ROWS.length) {
+    e.innerHTML = '';
+    return;
   }
-  S.fresh = false;
+  const c = f => ROWS.filter(r => r.st === f).length;
+  e.innerHTML = `
+    <div class="box" style="margin:8px 12px 0;display:flex;gap:10px;align-items:center;padding:5px 10px;background:#EFF7F2;border-color:#C8E6C9;flex-wrap:wrap">
+      ✓ Сверено автоматически: <b>${c('ok') + c('unit')}</b> из ${ROWS.length} (точных ${c('ok')}, с пересчётом единиц ${c('unit')}). На ручной контроль: <b>${ROWS.filter(todo).length}</b>.
+      <button class="btn" id="showAll">Показать все ${ROWS.length}</button>
+    </div>
+  `;
 }
 
-function render() {
-  renderCards();
-  renderWork();
+function render(sc) {
+  renderInfo();
+  renderChips();
+  renderHead();
+  const v = renderTable();
+  $('#insp').classList.toggle('hide', !S.open);
+  if (S.open) renderInsp(v);
+  renderFoot(v);
+  $('#bTog').classList.toggle('p', S.open);
+  if (sc) document.querySelector('tr.sel')?.scrollIntoView({ block: 'nearest' });
 }
 
-function selectRow(n) {
-  if (!S.open) S.fresh = true;
+let tt;
+function toast(m) {
+  const t = $('#toast');
+  if (!t) return;
+  t.textContent = m;
+  t.classList.add('on');
+  clearTimeout(tt);
+  tt = setTimeout(() => t.classList.remove('on'), 2200);
+}
+
+function decide(n, act) {
+  const r = ROWS.find(x => x.n === n);
+  if (!r || S.dec[n] || (!todo(r) && act !== 'no')) return;
+  const v = visible();
+  const i = v.findIndex(x => x.n === n);
+  const nx = !todo(r) ? null : [...v.slice(i + 1), ...v.slice(0, Math.max(i, 0))].find(x => x.n !== n && need(x));
+  S.dec[n] = act;
+  S.hist.push(n);
+  S.sel = nx ? nx.n : n;
+  render(true);
+  toast(`#${n}: ${act === 'yes' ? 'принято' : 'в правку'} · Z — отменить`);
+}
+
+function undo(n) {
+  if (n == null) n = S.hist.pop();
+  else S.hist = S.hist.filter(x => x !== n);
+  if (n == null) return toast('Нечего отменять');
+  delete S.dec[n];
   S.sel = n;
-  S.open = true;
-  render();
+  render(true);
+  toast(`#${n}: решение отменено`);
 }
 
-function closePanel() {
-  S.open = false;
-  render();
-}
-
-function moveNav(d) {
+function move(d) {
   const v = visible();
   if (!v.length) return;
   let i = v.findIndex(r => r.n === S.sel);
   i = Math.max(0, Math.min(v.length - 1, i < 0 ? 0 : i + d));
   S.sel = v[i].n;
-  if (!S.open) { S.open = true; S.fresh = true; }
-  render();
-  const el = document.querySelector("tr.row.sel");
-  if (el) el.scrollIntoView({ block: "nearest" });
+  S.open = true;
+  render(true);
 }
 
-function setFilter(fl) {
-  S.fl = fl;
-  render();
-}
+const toggle = f => { S.open = (f === undefined ? !S.open : f); render(); };
+const first = () => { const v = visible(); if (v.length && !v.some(r => r.n === S.sel)) S.sel = v[0].n; };
 
-function setSort(k) {
-  S.sort = S.sort.k === k ? { k, d: -S.sort.d } : { k, d: 1 };
-  render();
-}
-
-function searchRows(val) {
-  S.q = val;
-  render();
-}
-
-function resetFilters() {
-  S.fl = "all";
-  S.q = "";
-  render();
-}
-
-function makeDecision(n, act) {
-  S.dec[n] = act;
-  render();
-}
-
-function undoDecision(n) {
-  delete S.dec[n];
-  render();
-}
-
-// Пресеты
-function loadPreset(key, btnEl) {
-  activePreset = key;
-  document.getElementById('f-vor').value = '';
-  document.getElementById('f-lsr').value = '';
-  document.querySelectorAll('.preset-pill').forEach(b => b.classList.remove('active'));
-  if (btnEl) btnEl.classList.add('active');
-  const guard = document.getElementById('w-guard-banner');
-  if (guard) guard.style.display = 'none';
-
-  if (key === 'set1') currentProjectTitle = 'Комплект 1 · Дворец молодёжи (86 поз.)';
-  else if (key === 'crystal') currentProjectTitle = 'Комплект 2 · СФР «Кристалл» (137 поз.)';
-  else if (key === 'kaluga') currentProjectTitle = 'Комплект 3 · Ремонт кабинетов (534 поз.)';
-  else if (key === 'set2') currentProjectTitle = 'Комплект 4 · Помещение 163 (83 поз.)';
-}
-
-document.getElementById('f-vor').addEventListener('change', () => {
-  activePreset = null;
-  document.querySelectorAll('.preset-pill').forEach(b => b.classList.remove('active'));
-});
-document.getElementById('f-lsr').addEventListener('change', () => {
-  activePreset = null;
-  document.querySelectorAll('.preset-pill').forEach(b => b.classList.remove('active'));
-});
-
-// ==================== РАБОЧАЯ СВЕРКА ЧЕРЕЗ API ====================
-// ==================== UI УВЕДОМЛЕНИЯ И МОДАЛКА ОШИБОК ====================
-function showToast(text, type = 'info') {
-  const container = document.getElementById('toast-container');
-  if (!container) return;
-  const el = document.createElement('div');
-  el.style.cssText = `
-    pointer-events: auto;
-    background: #1F3A5F;
-    color: #fff;
-    padding: 10px 16px;
-    border-radius: 6px;
-    font-size: 13.5px;
-    font-weight: 500;
-    box-shadow: 0 6px 20px rgba(18, 34, 56, 0.28);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    opacity: 0;
-    transform: translateY(10px);
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  `;
-  if (type === 'success') {
-    el.style.background = '#2F7D5B';
-  } else if (type === 'error') {
-    el.style.background = '#B3382C';
-  } else if (type === 'warning') {
-    el.style.background = '#9A6A00';
-  }
-  el.innerHTML = text;
-  container.appendChild(el);
-  requestAnimationFrame(() => {
-    el.style.opacity = '1';
-    el.style.transform = 'none';
-  });
-  setTimeout(() => {
-    el.style.opacity = '0';
-    el.style.transform = 'translateY(10px)';
-    setTimeout(() => el.remove(), 250);
-  }, 4200);
-}
-
-function showErrorModal(data) {
-  const m = document.getElementById('error-modal');
-  if (!m) {
-    showToast(data.error_message || data.error || 'Ошибка сопоставления', 'error');
+// ==================== ОБРАБОТЧИКИ СОБЫТИЙ ТАБЛИЦЫ И ИНСПЕКТОРА ====================
+$('#tb').onclick = e => {
+  const tr = e.target.closest('tr[data-n]');
+  if (!tr) return;
+  const n = +tr.dataset.n;
+  const b = e.target.closest('[data-a]');
+  if (b) {
+    b.dataset.a === 'u' ? undo(n) : decide(n, b.dataset.a);
     return;
   }
-  document.getElementById('err-modal-title').textContent = data.error_title || 'Не удалось распознать документ';
-  document.getElementById('err-modal-msg').textContent = data.error_message || data.error || 'Файл не содержит ожидаемой структуры сметной документации.';
+  S.sel = n;
+  S.open = true;
+  render();
+};
 
-  const detBox = document.getElementById('err-modal-details-box');
-  if (data.error_details) {
-    detBox.textContent = data.error_details;
-    detBox.style.display = 'block';
+$('#insp').onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.nav) move(+b.dataset.nav);
+  else if (b.id === 'x') toggle(false);
+  else if (b.dataset.a) b.dataset.a === 'u' ? undo(S.sel) : decide(S.sel, b.dataset.a);
+};
+
+$('#chips').onclick = e => {
+  const b = e.target.closest('[data-f]');
+  if (!b) return;
+  S.fl = b.dataset.f;
+  first();
+  render(true);
+};
+
+$('#risk').onclick = () => {
+  if (S.fl === 'risk') {
+    S.fl = 'need';
+    S.sort = PRE.n;
   } else {
-    detBox.style.display = 'none';
+    S.fl = 'risk';
+    S.sort = PRE.risk;
   }
+  $('#sortSel').value = S.fl === 'risk' ? 'risk' : 'n';
+  first();
+  render(true);
+};
 
-  const hintEl = document.getElementById('err-modal-hint');
-  if (data.error_hint) {
-    hintEl.textContent = data.error_hint;
+$('#sortSel').onchange = e => {
+  if (e.target.value) {
+    S.sort = PRE[e.target.value].map(x => ({ ...x }));
+    render();
+  }
+};
+
+$('#hd').onclick = e => {
+  const th = e.target.closest('th[data-k]');
+  if (!th) return;
+  const k = th.dataset.k;
+  const i = S.sort.findIndex(s => s.k === k);
+  const df = k === 'risk' ? -1 : 1;
+  if (e.shiftKey) {
+    if (i < 0) S.sort.push({ k, d: df });
+    else S.sort[i].d *= -1;
   } else {
-    hintEl.textContent = 'Убедитесь, что загружаете корректную ведомость объёмов работ (ВОР), дефектную ведомость или локальную смету (по Методике 421/пр) в формате .xlsx.';
+    S.sort = [{ k, d: i >= 0 ? -S.sort[i].d : df }];
   }
+  $('#sortSel').value = '';
+  render();
+};
 
-  m.style.display = 'flex';
-}
+$('#q').oninput = e => { S.q = e.target.value; render(); };
+$('#bTog').onclick = () => toggle();
+$('#info').onclick = e => { if (e.target.id === 'showAll') { S.fl = 'all'; first(); render(true); } };
 
-function closeErrorModal() {
-  const m = document.getElementById('error-modal');
-  if (m) m.style.display = 'none';
-}
+// ==================== МОДАЛЬНЫЕ ОКНА ====================
+const openM = id => $(id)?.classList.add('on');
+const closeM = () => $$('.ov.on').forEach(m => m.classList.remove('on'));
 
-async function runCompare() {
-  const mode = document.getElementById('w-mode').value;
-  const thr = document.getElementById('w-thr').value;
-  const fVor = document.getElementById('f-vor').files[0];
-  const fLsr = document.getElementById('f-lsr').files[0];
+$('#bUp').onclick = () => openM('#mUp');
+$('#w-thr').onchange = e => {
+  const v = Math.max(20, Math.min(95, +e.target.value || 55));
+  e.target.value = v;
+  TH = v;
+  render();
+  toast('Порог сходства: ' + v + '%');
+};
 
-  const guard = document.getElementById('w-guard-banner');
-  if (guard) { guard.style.display = 'none'; guard.textContent = ''; }
+$$('.ov').forEach(m => m.addEventListener('click', e => {
+  if (e.target === m || e.target.hasAttribute('data-close')) closeM();
+}));
 
-  if (!activePreset && (!fVor || !fLsr)) {
-    if (!fVor && !fLsr) {
-      showToast('Пожалуйста, выберите оба файла сметной документации (ВОР и ЛСР).', 'warning');
-    } else if (!fVor) {
-      showToast('Пожалуйста, выберите файл ведомости объёмов работ (ВОР).', 'warning');
-    } else {
-      showToast('Пожалуйста, выберите файл локального сметного расчёта (ЛСР).', 'warning');
-    }
-    return;
-  }
+// ==================== ЭКСПОРТ CSV ====================
+$('#bCsv').onclick = () => {
+  if (!ROWS.length) return toast('Нет данных для экспорта в CSV');
+  const h = ['№', 'ВОР', 'ЛСР', 'Шифр', 'Объём ВОР', 'Объём ЛСР', 'Ед.', 'Статус', 'Сходство %', 'Риск ₽', 'Решение'];
+  const rows = ROWS.map(r => [
+    r.n,
+    r.vor,
+    r.lsr || '',
+    r.code || '',
+    r.vv,
+    r.lv ?? '',
+    r.u || '',
+    LAB(r),
+    r.sim,
+    r.risk || 0,
+    todo(r) ? (S.dec[r.n] === 'yes' ? 'Принято' : S.dec[r.n] === 'no' ? 'В правку' : 'Ждёт') : 'Авто'
+  ]);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + [h, ...rows].map(x => x.map(y => '"' + String(y).replace(/"/g, '""') + '"').join(';')).join('\r\n')], { type: 'text/csv' }));
+  a.download = 'sverka_results.csv';
+  a.click();
+  toast('CSV файл выгружен');
+};
 
-  const btn = document.getElementById('btn-compare');
-  const load = document.getElementById('w-loading');
-  btn.disabled = true;
-  load.style.display = 'inline-flex';
-
-  const fd = new FormData();
-  fd.append('mode', mode);
-  fd.append('threshold', thr);
-  if (activePreset) {
-    fd.append('preset', activePreset);
-  } else {
-    fd.append('vor', fVor);
-    fd.append('lsr', fLsr);
-  }
-
+// ==================== ОФИЦИАЛЬНЫЙ АКТ РАЗНОГЛАСИЙ (EXCEL) ====================
+async function exportDiscrepancyAct() {
+  if (!ROWS.length) return toast('Нет данных для формирования Акта разногласий');
+  toast('Генерация Акта разногласий в Excel...');
   try {
-    const resp = await fetch('/api/compare', { method: 'POST', body: fd });
-    const data = await resp.json();
-    if (!resp.ok || data.error) {
-      showErrorModal(data);
-      return;
-    }
+    const payload = {
+      title: currentProjectTitle || 'Сверка сметной документации',
+      user_name: (currentUser && currentUser.full_name) || 'Инженер-сметчик',
+      items: ROWS.map(r => ({
+        n: r.n,
+        vor: r.vor,
+        lsr: r.lsr,
+        code: r.code,
+        vv: r.vv,
+        lv: r.lv,
+        u: r.u,
+        pr: r.pr,
+        risk: r.risk,
+        unit_multiplier: r.unit_multiplier,
+        status: LAB(r),
+        decision: S.dec[r.n] || (todo(r) ? 'Ждёт решения' : 'auto'),
+        note: r.note || ''
+      }))
+    };
 
-    if (data.warning && guard) {
-      guard.textContent = '⚠️ ' + data.warning;
-      guard.style.display = 'block';
-    }
-
-    // Преобразуем входящие строки бэкенда в формат терминала
-    ROWS = (data.rows || []).map((r, idx) => {
-      const cls = r['Исходный класс'] || r['Результат алгоритма'] || '';
-      let s = 'diff';
-      if (cls === 'Совпало') {
-        s = 'ok';
-      } else if (cls.includes('пересчет') || cls.includes('частичн') || cls.includes('Кандидат') || cls.includes('проверка')) {
-        s = 'part';
-      } else if (cls.includes('Нет в') || cls.includes('Не найден')) {
-        s = 'none';
-      }
-
-      const vv = r['ВОР: количество'] != null && r['ВОР: количество'] !== '' ? parseFloat(r['ВОР: количество']) : null;
-      const lv = r['ЛСР: количество'] != null && r['ЛСР: количество'] !== '' ? parseFloat(r['ЛСР: количество']) : null;
-      const pr = (r['unit_price'] != null && r['unit_price'] !== '') ? parseFloat(r['unit_price']) : null;
-      let risk = 0;
-      if (r['financial_risk'] != null && r['financial_risk'] !== '') {
-        risk = Math.round(parseFloat(r['financial_risk']));
-      } else if (vv != null && lv != null && vv !== lv && pr != null && pr > 0) {
-        risk = Math.round(Math.abs(lv - vv) * pr);
-      }
-
-      return {
-        n: idx + 1,
-        vor_num: r['ВОР №'],
-        lsr_num: r['ЛСР №'],
-        vor: r['ВОР: наименование'],
-        lsr: r['ЛСР: наименование'],
-        code: r['ЛСР шифр'] || '',
-        vv: vv,
-        lv: lv,
-        u: r['ВОР: единица'] || r['ЛСР: единица'] || 'шт',
-        pr: pr,
-        risk: risk,
-        s: s,
-        cls: cls,
-        sim: Math.round(parseFloat(r['Текстовое сходство'] || 0) * 100),
-        ai: Boolean(r['Решение ИИ-арбитра'] && r['Решение ИИ-арбитра'] !== 'Не привлекался'),
-        note: r['Причина решения и расхождения'] || r['Коллизия (неоднозначность)'] || ''
-      };
+    const res = await fetch('/api/export_discrepancy_act', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
 
-    S.dec = {};
-    S.sel = ROWS.length ? ROWS[0].n : 1;
-    S.open = true;
-    render();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return toast('Ошибка формирования Акта: ' + (err.error || res.statusText));
+    }
 
-    const saveBtn = document.getElementById('btn-save-db');
-    if (saveBtn) saveBtn.style.display = 'inline-flex';
-
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Акт_разногласий_СверкаСмет.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('✅ Акт разногласий (Excel) успешно сформирован!');
   } catch (err) {
-    showToast('Сетевая ошибка при обращении к серверу: ' + err.message, 'error');
-  } finally {
-    btn.disabled = false;
-    load.style.display = 'none';
+    toast('Ошибка экспорта: ' + err.message);
   }
 }
+$('#bAct').onclick = exportDiscrepancyAct;
 
-// ==================== СОХРАНЕНИЕ И ИСТОРИЯ В POSTGRESQL ====================
+// ==================== КЛАВИАТУРНЫЙ КОНВЕЙЕР (HARDWARE CODE) ====================
+addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t.closest && t.closest('input,select,textarea')) {
+    if (e.key === 'Escape') t.blur();
+    return;
+  }
+  if (document.querySelector('.ov.on')) {
+    if (e.key === 'Escape') closeM();
+    return;
+  }
+  const c = e.code;
+  if (c === 'ArrowDown' || c === 'KeyJ') {
+    e.preventDefault();
+    move(1);
+  } else if (c === 'ArrowUp' || c === 'KeyK') {
+    e.preventDefault();
+    move(-1);
+  } else if (c === 'KeyY') {
+    if (S.sel != null) decide(S.sel, 'yes');
+  } else if (c === 'KeyN') {
+    if (S.sel != null) decide(S.sel, 'no');
+  } else if (c === 'KeyZ') {
+    undo();
+  } else if (c === 'Slash') {
+    e.preventDefault();
+    $('#q').focus();
+  } else if (e.key === 'Escape') {
+    toggle();
+  }
+});
+
+// ==================== СОХРАНЕНИЕ В БАЗУ POSTGRESQL ====================
 async function saveCurrentProjectToDB() {
-  const saveBtn = document.getElementById('btn-save-db');
-  saveBtn.disabled = true;
-  saveBtn.textContent = 'Сохранение...';
+  if (!ROWS.length) return toast('Нет данных для сохранения');
+  const bSave = $('#bSave');
+  bSave.disabled = true;
+  bSave.textContent = 'Сохранение...';
 
-  const totalRisk = ROWS.reduce((acc, r) => acc + (r.risk > 0 ? r.risk : 0), 0);
-  const matched = ROWS.filter(r => r.s === 'ok' || r.s === 'part').length;
-  const discrepancies = ROWS.filter(r => r.s === 'diff').length;
-
+  const ri = riskInfo();
   const payload = {
     title: currentProjectTitle || 'Сверка сметной документации',
     object_name: currentProjectTitle,
     vor_filename: activePreset ? `${activePreset}_vor.xlsx` : 'vor.xlsx',
     lsr_filename: activePreset ? `${activePreset}_lsr.xlsx` : 'lsr.xlsx',
     total_positions: ROWS.length,
-    matched_count: matched,
-    discrepancy_count: discrepancies,
-    total_financial_risk: totalRisk,
+    matched_count: ROWS.filter(r => !todo(r)).length,
+    discrepancy_count: ROWS.filter(todo).length,
+    total_financial_risk: ri.sum,
     items: ROWS.map(r => ({
       n: r.n,
       vor_num: r.vor_num,
@@ -654,178 +608,324 @@ async function saveCurrentProjectToDB() {
     });
     const data = await res.json();
     if (res.ok && data.ok) {
-      showToast(`✅ Проект успешно сохранён в истории (ID #${data.project.id})!`, 'success');
+      toast(`✅ Проект сохранён в истории (ID #${data.project.id})!`);
       currentProjectId = data.project.id;
     } else {
-      showToast('Ошибка при сохранении: ' + (data.error || 'Неизвестная ошибка'), 'error');
+      toast('Ошибка сохранения: ' + (data.error || 'Неизвестная ошибка'));
     }
   } catch (e) {
-    showToast('Ошибка сохранения: ' + e.message, 'error');
+    toast('Ошибка связи с сервером: ' + e.message);
   } finally {
-    saveBtn.disabled = false;
-    saveBtn.textContent = '💾 Сохранить проект';
+    bSave.disabled = false;
+    bSave.textContent = '💾 Сохранить';
   }
 }
+$('#bSave').onclick = saveCurrentProjectToDB;
 
+// ==================== ИСТОРИЯ ПРОВЕРОК ====================
 async function openHistoryModal() {
-  document.getElementById('modal-history').style.display = 'flex';
-  const tbody = document.getElementById('history-tbody');
-  const loading = document.getElementById('history-loading');
-  const table = document.getElementById('history-table');
-  loading.style.display = 'block';
-  table.style.display = 'none';
-
+  openM('#mHist');
+  const histBody = $('#histBody');
+  histBody.innerHTML = '<div class="mut">Загрузка сохранённых проверок из базы...</div>';
   try {
     const res = await fetch('/api/projects');
     const data = await res.json();
-    loading.style.display = 'none';
-    table.style.display = 'table';
-
     if (!data.projects || !data.projects.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:18px;">В истории пока нет сохранённых проверок. Запустите сверку смет и нажмите «Сохранить проект».</td></tr>';
+      histBody.innerHTML = '<div class="mut">Пока нет сохранённых проверок. Запустите сверку и нажмите «💾 Сохранить».</div>';
       return;
     }
-
-    tbody.innerHTML = data.projects.map(p => `
-      <tr>
-        <td><b>#${p.id}</b></td>
-        <td><b>${p.title}</b></td>
-        <td style="color:var(--mut);">${p.created_at}</td>
-        <td>${p.total_positions}</td>
-        <td style="color:var(--ok); font-weight:600;">${p.matched_count}</td>
-        <td style="color:var(--diff); font-weight:600;">${money(p.total_financial_risk)}</td>
-        <td>
-          <button class="btn btn-sm btn-outline" onclick="loadProjectFromDB(${p.id})">Открыть</button>
-        </td>
-      </tr>
-    `).join("");
+    histBody.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Наименование объекта</th>
+            <th>Дата</th>
+            <th>Позиций</th>
+            <th>Сверено</th>
+            <th>Финансовый риск</th>
+            <th>Действие</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.projects.map(p => `
+            <tr>
+              <td class="mono"><b>#${p.id}</b></td>
+              <td><b>${esc(p.title)}</b></td>
+              <td class="mut">${esc(p.created_at)}</td>
+              <td>${p.total_positions}</td>
+              <td style="color:var(--ok);font-weight:600;">${p.matched_count}</td>
+              <td class="mono" style="color:var(--diff);font-weight:600;">${p.total_financial_risk > 0 ? fm(p.total_financial_risk) + ' ₽' : '0 ₽'}</td>
+              <td><button class="btn btn-sm" onclick="loadProjectFromDB(${p.id})">Открыть</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
   } catch (e) {
-    loading.textContent = 'Ошибка загрузки из базы: ' + e.message;
+    histBody.innerHTML = `<div style="color:var(--bad)">Ошибка чтения архива: ${esc(e.message)}</div>`;
   }
 }
-
-function closeHistoryModal() {
-  document.getElementById('modal-history').style.display = 'none';
-}
+$('#bHist').onclick = openHistoryModal;
 
 async function loadProjectFromDB(id) {
-  closeHistoryModal();
+  closeM();
   try {
     const res = await fetch(`/api/projects/${id}`);
     const data = await res.json();
-    if (!res.ok || data.error) {
-      showToast('Не удалось загрузить проект: ' + (data.error || 'Ошибка'), 'error');
-      return;
-    }
+    if (!res.ok || data.error) return toast('Ошибка загрузки проекта: ' + (data.error || ''));
 
     currentProjectTitle = data.title;
     currentProjectId = data.id;
-    ROWS = (data.items || []).map(it => ({
-      n: it.n,
-      vor_num: it.vor_num,
-      lsr_num: it.lsr_num,
-      vor: it.vor,
-      lsr: it.lsr,
-      code: it.code,
-      vv: it.vv,
-      lv: it.lv,
-      u: it.u,
-      pr: it.pr,
-      risk: it.risk,
-      s: it.s,
-      cls: it.detail_class || '',
-      sim: it.sim,
-      ai: it.ai,
-      note: it.note
-    }));
+    ROWS = (data.items || []).map(it => {
+      const item = {
+        n: it.n,
+        vor_num: it.vor_num,
+        lsr_num: it.lsr_num,
+        vor: it.vor,
+        lsr: it.lsr,
+        code: it.code,
+        vv: it.vv,
+        lv: it.lv,
+        u: it.u,
+        pr: it.pr,
+        risk: it.risk,
+        s: it.s,
+        cls: it.detail_class || '',
+        sim: it.sim,
+        ai: it.ai,
+        note: it.note
+      };
+      classifyItem(item);
+      return item;
+    });
 
     S.dec = {};
     (data.items || []).forEach(it => {
       if (it.decision) S.dec[it.n] = it.decision;
     });
 
-    S.sel = ROWS.length ? ROWS[0].n : 1;
-    S.open = true;
-    render();
-    showToast(`Проект #${data.id} «${data.title}» загружен из базы!`, 'success');
+    $('#files-lbl').textContent = `${data.title} (#${data.id}) ▾`;
+    first();
+    S.sel = S.sel ?? visible()[0]?.n;
+    render(true);
+    toast(`Проект #${data.id} «${data.title}» загружен!`);
   } catch (e) {
-    showToast('Сетевая ошибка: ' + e.message, 'error');
+    toast('Ошибка: ' + e.message);
   }
 }
 
-// ==================== БЕНЧМАРК ====================
-function openBenchmarkModal() {
-  document.getElementById('modal-benchmark').style.display = 'flex';
-}
-function closeBenchmarkModal() {
-  document.getElementById('modal-benchmark').style.display = 'none';
+// ==================== ВЫПОЛНЕНИЕ СВЕРКИ ЧЕРЕЗ API ====================
+function showErrorModal(data) {
+  const m = $('#error-modal');
+  if (!m) return toast(data.error_message || data.error || 'Ошибка сверки');
+  $('#err-modal-title').textContent = data.error_title || 'Не удалось распознать документ';
+  $('#err-modal-msg').textContent = data.error_message || data.error || 'Файл не содержит ожидаемой структуры сметной документации.';
+  const detBox = $('#err-modal-details-box');
+  if (data.error_details) {
+    detBox.textContent = data.error_details;
+    detBox.style.display = 'block';
+  } else {
+    detBox.style.display = 'none';
+  }
+  $('#err-modal-hint').textContent = data.error_hint || 'Убедитесь, что загружаете корректную ведомость объёмов работ (ВОР) и смету (по Методике 421/пр) в формате .xlsx.';
+  m.classList.add('on');
 }
 
+async function runCompare() {
+  const mode = $('#w-mode').value;
+  const thr = $('#w-thr').value;
+  const fVor = $('#f-vor').files[0];
+  const fLsr = $('#f-lsr').files[0];
+
+  const guard = $('#w-guard-banner');
+  if (guard) { guard.style.display = 'none'; guard.textContent = ''; }
+
+  if (!activePreset && (!fVor || !fLsr)) {
+    return toast('Пожалуйста, выберите оба файла (ВОР и ЛСР) или выберите демонстрационный комплект');
+  }
+
+  const btn = $('#btn-compare');
+  const load = $('#w-loading');
+  btn.disabled = true;
+  load.style.display = 'inline-flex';
+
+  const fd = new FormData();
+  fd.append('mode', mode);
+  fd.append('threshold', (parseFloat(thr) / 100).toFixed(2));
+  if (activePreset) {
+    fd.append('preset', activePreset);
+  } else {
+    fd.append('vor', fVor);
+    fd.append('lsr', fLsr);
+  }
+
+  try {
+    const resp = await fetch('/api/compare', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (!resp.ok || data.error) {
+      showErrorModal(data);
+      return;
+    }
+
+    if (data.warning && guard) {
+      guard.textContent = '⚠️ ' + data.warning;
+      guard.style.display = 'block';
+    }
+
+    // Заполняем ROWS
+    ROWS = (data.rows || []).map((r, idx) => {
+      const cls = r['Исходный класс'] || r['Результат алгоритма'] || '';
+      let s = 'diff';
+      if (cls === 'Совпало') {
+        s = 'ok';
+      } else if (cls.includes('пересчет') || cls.includes('частичн') || cls.includes('Кандидат') || cls.includes('проверка')) {
+        s = 'part';
+      } else if (cls.includes('Нет в') || cls.includes('Не найден')) {
+        s = 'none';
+      }
+
+      const vv = (r['ВОР: количество'] != null && r['ВОР: количество'] !== '') ? parseFloat(r['ВОР: количество']) : null;
+      const lv = (r['ЛСР: количество'] != null && r['ЛСР: количество'] !== '') ? parseFloat(r['ЛСР: количество']) : null;
+      const pr = (r['unit_price'] != null && r['unit_price'] !== '') ? parseFloat(r['unit_price']) : null;
+      let risk = 0;
+      if (r['financial_risk'] != null && r['financial_risk'] !== '') {
+        risk = Math.round(parseFloat(r['financial_risk']));
+      } else if (vv != null && lv != null && vv !== lv && pr != null && pr > 0) {
+        risk = Math.round(Math.abs(lv - vv) * pr);
+      }
+
+      const item = {
+        n: idx + 1,
+        vor_num: r['ВОР №'],
+        lsr_num: r['ЛСР №'],
+        vor: r['ВОР: наименование'],
+        lsr: r['ЛСР: наименование'],
+        code: r['ЛСР шифр'] || '',
+        vv: vv,
+        lv: lv,
+        u: r['ВОР: единица'] || r['ЛСР: единица'] || 'шт',
+        pr: pr,
+        risk: risk,
+        s: s,
+        cls: cls,
+        sim: Math.round(parseFloat(r['Текстовое сходство'] || 0) * 100),
+        ai: Boolean(r['Решение ИИ-арбитра'] && r['Решение ИИ-арбитра'] !== 'Не привлекался'),
+        note: r['Причина решения и расхождения'] || r['Коллизия (неоднозначность)'] || ''
+      };
+      classifyItem(item);
+      return item;
+    });
+
+    S.dec = {};
+    S.fl = 'need';
+    first();
+    S.sel = S.sel ?? visible()[0]?.n;
+    S.open = true;
+
+    const vorName = fVor ? fVor.name : `${activePreset || 'ВОР'}.xlsx`;
+    const lsrName = fLsr ? fLsr.name : `${activePreset || 'ЛСР'}.xlsx`;
+    $('#files-lbl').textContent = `${vorName} · ${ROWS.length} → ${lsrName} ▾`;
+
+    closeM();
+    render(true);
+    toast(`Сверка завершена: сопоставлено ${ROWS.length} позиций`);
+  } catch (err) {
+    toast('Сетевая ошибка: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    load.style.display = 'none';
+  }
+}
+
+// ==================== ПРЕСЕТЫ ====================
+function loadPreset(key, btnEl) {
+  activePreset = key;
+  $('#f-vor').value = '';
+  $('#f-lsr').value = '';
+  $$('.preset-pill').forEach(b => b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+
+  if (key === 'set1') currentProjectTitle = 'Комплект 1 · Дворец молодёжи (86 поз.)';
+  else if (key === 'crystal') currentProjectTitle = 'Комплект 2 · СФР «Кристалл» (137 поз.)';
+  else if (key === 'kaluga') currentProjectTitle = 'Комплект 3 · Ремонт кабинетов (534 поз.)';
+  else if (key === 'set2') currentProjectTitle = 'Комплект 4 · Помещение 163 (83 поз.)';
+
+  runCompare();
+}
+
+$('#f-vor').addEventListener('change', () => {
+  activePreset = null;
+  $$('.preset-pill').forEach(b => b.classList.remove('active'));
+});
+$('#f-lsr').addEventListener('change', () => {
+  activePreset = null;
+  $$('.preset-pill').forEach(b => b.classList.remove('active'));
+});
+
+// ==================== БЕНЧМАРК (ВКР) ====================
+function openBenchmarkModal() { openM('#modal-benchmark'); }
+$('#btn-benchmark').onclick = openBenchmarkModal;
+
 async function runBenchmark() {
-  const noise = document.getElementById('b-noise').value;
-  const load = document.getElementById('b-loading');
-  const resBox = document.getElementById('benchmark-results');
-  const tbody = document.getElementById('benchmark-tbody');
+  const noise = $('#b-noise').value;
+  const load = $('#b-loading');
+  const resBox = $('#benchmark-results');
+  const tbody = $('#benchmark-tbody');
 
   load.style.display = 'inline';
   try {
     const res = await fetch(`/api/benchmark?noise=${noise}`);
     const data = await res.json();
     load.style.display = 'none';
-    if (!res.ok || data.error) {
-      showToast('Ошибка бенчмарка: ' + (data.error || ''), 'error');
-      return;
-    }
+    if (!res.ok || data.error) return toast('Ошибка: ' + (data.error || ''));
 
     resBox.style.display = 'block';
     tbody.innerHTML = (data.methods || []).map(m => `
       <tr>
-        <td><b>${m.name}</b></td>
+        <td><b>${esc(m.name)}</b></td>
         <td>${(m.precision * 100).toFixed(1)}%</td>
         <td>${(m.recall * 100).toFixed(1)}%</td>
         <td><b style="color:var(--ok);">${m.f1.toFixed(3)}</b></td>
         <td>${(m.qty_accuracy * 100).toFixed(1)}%</td>
       </tr>
-    `).join("");
+    `).join('');
   } catch (e) {
     load.style.display = 'none';
-    showToast('Ошибка: ' + e.message, 'error');
+    toast('Ошибка: ' + e.message);
   }
 }
 
-// ==================== АВТОРИЗАЦИЯ ====================
+// ==================== АВТОРИЗАЦИЯ И ИНИЦИАЛИЗАЦИЯ ====================
 async function checkAuth() {
   try {
     const res = await fetch('/api/auth/me');
     const data = await res.json();
     if (data.user) {
       currentUser = data.user;
-      document.getElementById('user-name').textContent = data.user.full_name;
-      document.getElementById('user-role-badge').textContent = data.user.role === 'lead' ? 'Руководитель' : 'Сметчик';
-      document.getElementById('btn-logout').style.display = 'inline';
-
-      const isLead = data.user.role === 'lead';
-
-      // Научный бенчмарк и пресеты объектов ВКР доступны ТОЛЬКО автору (роль lead)
-      const bBtn = document.getElementById('btn-benchmark');
-      if (bBtn) {
-        bBtn.style.display = isLead ? 'inline-flex' : 'none';
+      $('#user-name').textContent = data.user.full_name;
+      const roleBadge = $('#user-role-badge');
+      if (data.user.role === 'lead') {
+        roleBadge.textContent = '👤 Руководитель';
+      } else if (data.user.role === 'admin') {
+        roleBadge.textContent = '👤 Администратор';
+      } else {
+        roleBadge.textContent = '👤 Сметчик';
       }
 
-      const pBar = document.getElementById('presets-bar');
-      if (pBar) {
-        pBar.style.display = isLead ? 'flex' : 'none';
-      }
+      const isLead = (data.user.role === 'lead');
+      const bBtn = $('#btn-benchmark');
+      if (bBtn) bBtn.style.display = isLead ? 'inline-flex' : 'none';
+      const pBar = $('#presets-bar');
+      if (pBar) pBar.style.display = isLead ? 'flex' : 'none';
 
-      if (!isLead) {
-        // Обычные пользователи начинают с чистого листа: без чужих демонстрационных строк
-        activePreset = null;
-        ROWS = [];
-        currentProjectTitle = '';
-        render();
+      // Автоматическая загрузка эталонного комплекта №1 для lead / демонстрации
+      if (isLead && !ROWS.length) {
+        activePreset = 'set1';
+        currentProjectTitle = 'Комплект 1 · Дворец молодёжи (86 поз.)';
+        runCompare();
       }
     } else {
-      // Закрытый доступ: без авторизации в рабочий терминал не пускаем
       window.location.href = '/login';
     }
   } catch (e) {
@@ -838,21 +938,14 @@ async function logout() {
   window.location.reload();
 }
 
-// Горячие клавиши
-document.addEventListener("keydown", e => {
-  if (e.target.closest("input, select, textarea")) return;
-  const k = e.key.toLowerCase();
-  if (k === "arrowdown") { e.preventDefault(); moveNav(1); }
-  else if (k === "arrowup") { e.preventDefault(); moveNav(-1); }
-  else if (k === "escape") { closePanel(); }
-  else if (k === "y" || k === "n") {
-    const r = ROWS.find(x => x.n === S.sel);
-    if (r && r.s !== "ok" && S.open) {
-      makeDecision(r.n, k === "y" ? "yes" : "no");
-    }
-  }
-});
+window.exportDecisions = () => ROWS.map(r => ({
+  n: r.n,
+  decision: S.dec[r.n] === 'yes' ? 'confirmed' : S.dec[r.n] === 'no' ? 'rejected' : 'auto',
+  status: r.st,
+  unit_multiplier: r.st === 'unit' ? mult(r) : null,
+  financial_risk: r.risk || 0
+}));
 
-// Инициализация
+// Старт
 checkAuth();
 render();

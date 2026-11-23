@@ -10,221 +10,208 @@
 </head>
 <body>
 
-<div class="app">
-  <!-- Top Navigation Header -->
-  <header class="top">
-    <div class="brand">
-      <a href="/" style="display:flex; align-items:baseline; gap:8px;">
-        <b>СверкаСмет</b>
-        <span>SmartMatcher · B2B SaaS</span>
-      </a>
+<!-- Верхняя строка 1: Бренд, Загрузка, Поиск, Действия, Профиль -->
+<div class="bar">
+  <div class="logo">
+    <b>СверкаСмет</b>
+    <span class="pl s-unit" style="font-size:11px;">B2B SaaS</span>
+  </div>
+
+  <button class="btn" id="bUp" title="Загрузка файлов ВОР/ЛСР и параметры сопоставления">
+    📁 <span id="files-lbl">Загрузить ВОР и ЛСР (421/пр) ▾</span>
+  </button>
+
+  <span style="flex:1"></span>
+
+  <input class="s" id="q" type="search" placeholder="Поиск по названию или шифру  ( / )" autocomplete="off">
+
+  <button class="btn" id="bSave" title="Сохранить текущую сверку и решения в базу">💾 Сохранить</button>
+  <button class="btn" id="bHist" title="История проверок">📁 История</button>
+  <button class="btn" id="bCsv" title="Скачать результаты в CSV">📥 CSV</button>
+  <button class="btn" id="bAct" title="Сформировать официальный Акт разногласий (Excel)">📥 Акт разногласий (Excel)</button>
+  <button class="btn" id="btn-benchmark" title="Сравнительные замеры алгоритмов (ВКР)" style="display:none;">📊 Бенчмарк</button>
+
+  <button class="btn p" id="bTog" title="Свернуть / развернуть панель инспектора">◨ Панель <kbd>Esc</kbd></button>
+
+  <div class="user-pill" id="user-badge">
+    <span id="user-role-badge" class="pl s-unit">👤 Сметчик</span>
+    <span id="user-name" class="mono" style="font-weight:600;">Загрузка...</span>
+    <button id="btn-logout" onclick="logout()" title="Выйти из системы" style="background:none;border:0;color:var(--mut);cursor:pointer;padding:0 2px;font-size:12px;">✕</button>
+  </div>
+</div>
+
+<!-- Верхняя строка 2: Статус-чипы, Суммарный финриск, Сортировка -->
+<div class="bar bar2">
+  <div id="chips"></div>
+  <span style="flex:1"></span>
+  <button class="chip" id="risk" title="Совокупный финансовый риск"></button>
+  <label class="mut" style="display:flex; align-items:center; gap:6px;">Сортировка
+    <select id="sortSel">
+      <option value="n">По порядку ВОР</option>
+      <option value="prio">Приоритет проверки: статус → риск → сходство</option>
+      <option value="risk">Риск ₽ ↓</option>
+      <option value="sim">Самые спорные (сходство ↑)</option>
+      <option value="">Своя (Shift+клик по заголовкам)</option>
+    </select>
+  </label>
+</div>
+
+<!-- Информационный баннер автоматической сверки -->
+<div id="info"></div>
+
+<!-- Основное рабочее пространство (Таблица + Инспектор справа) -->
+<div class="main">
+  <div class="tbox">
+    <table>
+      <colgroup>
+        <col style="width:44px">
+        <col style="width:25%">
+        <col style="width:25%">
+        <col style="width:175px">
+        <col style="width:150px">
+        <col style="width:62px">
+        <col style="width:90px">
+        <col style="width:104px">
+      </colgroup>
+      <thead>
+        <tr id="hd"></tr>
+      </thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+  <aside class="insp" id="insp"></aside>
+</div>
+
+<!-- Нижняя строка состояния: Клавиатурный конвейер и прогресс решений -->
+<div class="foot" id="foot"></div>
+
+<!-- Плавающее уведомление -->
+<div id="toast"></div>
+
+<!-- ==================== МОДАЛЬНОЕ ОКНО: ФАЙЛЫ И ПАРАМЕТРЫ СВЕРКИ ==================== -->
+<div class="ov" id="mUp">
+  <div class="mc">
+    <div class="mh">
+      <span>Файлы и параметры сверки</span>
+      <button class="btn" data-close>✕</button>
     </div>
+    <div class="mb">
+      <div class="fr">
+        <span class="mut">Ведомость объёмов (ВОР):</span>
+        <input type="file" id="f-vor" accept=".xlsx">
 
-    <!-- User Profile & DB Projects -->
-    <div class="user-bar">
-      <div id="user-badge" class="user-pill">
-        <span class="user-icon">👤</span>
-        <span id="user-name">Загрузка профиля...</span>
-        <span id="user-role-badge" class="role-badge">Сметчик</span>
-        <button class="btn-text" id="btn-logout" onclick="logout()" title="Выйти">✕</button>
-      </div>
-      <button class="btn btn-sm" id="btn-history" onclick="openHistoryModal()">
-        📁 История проверок
-      </button>
-      <button class="btn btn-sm btn-outline" id="btn-benchmark" onclick="openBenchmarkModal()" title="Сравнительные замеры алгоритмов" style="display:none;">
-        📊 Научный бенчмарк
-      </button>
-    </div>
-  </header>
+        <span class="mut">Локальная смета (ЛСР, 421/пр):</span>
+        <input type="file" id="f-lsr" accept=".xlsx">
 
-  <!-- Controls & File Upload Bar -->
-  <section class="controls-card">
-    <div class="controls-grid">
-      <!-- File 1: VOR -->
-      <div class="ctl-col">
-        <label>Ведомость объёмов работ (ВОР .xlsx):</label>
-        <div class="file-picker">
-          <input type="file" id="f-vor" accept=".xlsx">
-        </div>
-      </div>
-
-      <!-- File 2: LSR -->
-      <div class="ctl-col">
-        <label>Локальный сметный расчёт (ЛСР .xlsx):</label>
-        <div class="file-picker">
-          <input type="file" id="f-lsr" accept=".xlsx">
-        </div>
-      </div>
-
-      <!-- Mode & Threshold -->
-      <div class="ctl-col" style="min-width: 220px;">
-        <label>Режим сопоставления:</label>
-        <select id="w-mode" class="select-styled">
+        <label class="mut" for="w-mode">Режим сопоставления:</label>
+        <select id="w-mode">
           <option value="algo" selected>SmartMatcher (детерминированный v2)</option>
           <option value="hybrid">SmartMatcher + Алиса (Двухуровневый ИИ-арбитраж)</option>
           <option value="hybrid_weak">Только слабый текст (Baseline)</option>
         </select>
+
+        <label class="mut" for="w-thr">Порог сходства, %:</label>
+        <input id="w-thr" type="number" min="20" max="95" step="5" value="55">
       </div>
 
-      <div class="ctl-col" style="width: 100px;">
-        <label>Порог сходства:</label>
-        <input type="number" id="w-thr" value="0.55" min="0.20" max="0.95" step="0.05" class="input-styled">
-      </div>
-
-      <!-- Actions -->
-      <div class="ctl-col ctl-actions">
-        <label>&nbsp;</label>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <button class="btn btn-primary" id="btn-compare" onclick="runCompare()">
-            Сверить документы
-          </button>
-          <span id="w-loading" class="loading-spinner" style="display:none;">
-            <i class="spinner"></i> Выполняется сопоставление...
-          </span>
-          <button class="btn btn-outline" id="btn-save-db" onclick="saveCurrentProjectToDB()" title="Сохранить текущий аудит в архив" style="display:none;">
-            💾 Сохранить проект
-          </button>
+      <!-- Presets bar для автора ВКР / lead -->
+      <div id="presets-bar" style="display:none; flex-direction:column; gap:6px; margin-top:6px; padding-top:8px; border-top:1px solid var(--line);">
+        <span class="mut" style="font-size:11.5px;">Демонстрационные комплекты объектов ВКР:</span>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="preset-pill" onclick="loadPreset('set1', this)">1 · Дворец молодёжи (86 поз.)</button>
+          <button class="preset-pill" onclick="loadPreset('crystal', this)">2 · СФР «Кристалл» (137 поз.)</button>
+          <button class="preset-pill" onclick="loadPreset('kaluga', this)">3 · Ремонт кабинетов (534 поз.)</button>
+          <button class="preset-pill" onclick="loadPreset('set2', this)">4 · Помещение 163 (83 поз.)</button>
         </div>
       </div>
+
+      <div id="w-guard-banner" style="display:none; background:#FFF1F2; border:1px solid #F87171; color:var(--bad); padding:8px 10px; border-radius:4px; font-size:12px;"></div>
     </div>
-
-    <!-- Presets bar (отображается только для автора ВКР / lead) -->
-    <div class="presets-row" id="presets-bar" style="display:none;">
-      <span>Демонстрационные комплекты:</span>
-      <button class="preset-pill" onclick="loadPreset('set1', this)">1 · Дворец молодёжи (86 поз.)</button>
-      <button class="preset-pill" onclick="loadPreset('crystal', this)">2 · СФР «Кристалл» (137 поз.)</button>
-      <button class="preset-pill" onclick="loadPreset('kaluga', this)">3 · Ремонт кабинетов (534 поз.)</button>
-      <button class="preset-pill" onclick="loadPreset('set2', this)">4 · Помещение 163 (83 поз.)</button>
+    <div class="mf">
+      <button class="btn" data-close>Закрыть</button>
+      <button class="btn p" id="btn-compare" onclick="runCompare()">Сверить документы</button>
+      <span id="w-loading" style="display:none; font-size:12px; color:var(--mut);">Сопоставление...</span>
     </div>
-
-    <!-- Guard Banner -->
-    <div id="w-guard-banner" class="guard-banner" style="display:none;"></div>
-  </section>
-
-  <!-- Status Cards (Filter Buttons) -->
-  <section class="cards" id="cards" aria-label="Итоги сверки"></section>
-
-  <!-- Segmented Progress Strip -->
-  <div class="strip" id="strip"></div>
-
-  <!-- Master-Detail Workspace -->
-  <main class="work" id="work"></main>
-
-  <p class="hint" id="foot" style="margin:4px 0 0; text-align:center;"></p>
+  </div>
 </div>
 
 <!-- ==================== МОДАЛЬНОЕ ОКНО: ИСТОРИЯ ПРОВЕРОК ==================== -->
-<div id="modal-history" class="modal-overlay" style="display:none;">
-  <div class="modal-card">
-    <div class="modal-hdr">
-      <h3>📁 История проверок сметной документации</h3>
-      <button class="btn ic" onclick="closeHistoryModal()">✕</button>
+<div class="ov" id="mHist">
+  <div class="mc mc-lg">
+    <div class="mh">
+      <span>📁 История проверок сметной документации</span>
+      <button class="btn" data-close>✕</button>
     </div>
-    <div class="modal-body">
-      <div id="history-loading" style="text-align:center; padding:20px; color:var(--mut);">Загрузка сохранённых проверок...</div>
-      <table class="history-table" id="history-table" style="display:none;">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Наименование объекта</th>
-            <th>Дата сверки</th>
-            <th>Позиций</th>
-            <th>Совпало</th>
-            <th>Финансовый риск</th>
-            <th>Действие</th>
-          </tr>
-        </thead>
-        <tbody id="history-tbody"></tbody>
-      </table>
+    <div class="mb" id="histBody">
+      <div class="mut">Загрузка сохранённых проверок...</div>
     </div>
-    <div class="modal-ftr">
-      <span style="font-size:12.5px; color:var(--mut);">Все проверки сохраняются в защищённом архиве компании.</span>
-      <button class="btn" onclick="closeHistoryModal()">Закрыть</button>
+    <div class="mf">
+      <span style="flex:1; font-size:11.5px; color:var(--mut);">Проверки сохраняются в защищённом архиве компании (PostgreSQL 17).</span>
+      <button class="btn" data-close>Закрыть</button>
     </div>
   </div>
 </div>
 
 <!-- ==================== МОДАЛЬНОЕ ОКНО: НАУЧНЫЙ БЕНЧМАРК (ВКР) ==================== -->
-<div id="modal-benchmark" class="modal-overlay" style="display:none;">
-  <div class="modal-card modal-lg">
-    <div class="modal-hdr">
-      <h3>📊 Эксперименты и сравнительный бенчмарк (ВКР)</h3>
-      <button class="btn ic" onclick="closeBenchmarkModal()">✕</button>
+<div class="ov" id="modal-benchmark">
+  <div class="mc mc-lg">
+    <div class="mh">
+      <span>📊 Научный бенчмарк алгоритмов сопоставления смет</span>
+      <button class="btn" data-close>✕</button>
     </div>
-    <div class="modal-body">
-      <p style="margin-bottom:12px; font-size:13.5px; color:var(--mut);">
-        Стенд для проверки гипотез на синтетических возмущениях (perturb.py) и расчёта метрик Precision, Recall, F1 в сравнении с базовой схемой (baseline_legacy.py).
+    <div class="mb">
+      <p style="font-size:12px; color:var(--mut);">
+        Экспериментальное подтверждение научной новизны ВКР: сравнение детерминированного SmartMatcher,
+        двухуровневого ИИ-арбитража и классического TF-IDF / Baseline.
       </p>
-      <div style="display:flex; gap:12px; align-items:flex-end; margin-bottom:16px;">
-        <div>
-          <label style="font-weight:600; font-size:12px;">Уровень шума (возмущений):</label>
-          <select id="b-noise" class="select-styled" style="width:160px;">
-            <option value="light">Слабый (5%)</option>
-            <option value="medium" selected>Средний (15%)</option>
-            <option value="heavy">Сильный (30%)</option>
-          </select>
-        </div>
-        <button class="btn btn-primary" onclick="runBenchmark()">Запустить стресс-тест</button>
-        <span id="b-loading" style="display:none; color:var(--link); font-weight:600;">Выполняется бенчмарк...</span>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <label class="mut">Уровень шума:</label>
+        <select id="b-noise" style="width:180px;">
+          <option value="0.0">Без шума (0%)</option>
+          <option value="0.1" selected>Умеренный шум (10%)</option>
+          <option value="0.25">Высокий шум (25%)</option>
+        </select>
+        <button class="btn p" onclick="runBenchmark()">Запустить замер</button>
+        <span id="b-loading" style="display:none; font-size:12px; color:var(--mut);">Выполняются расчёты...</span>
       </div>
-      <div id="benchmark-results" style="display:none;">
-        <table class="history-table">
+      <div id="benchmark-results" style="margin-top:10px; display:none;">
+        <table>
           <thead>
             <tr>
-              <th>Метод сопоставления</th>
+              <th>Метод</th>
               <th>Precision</th>
               <th>Recall</th>
               <th>F1-Score</th>
-              <th>Точность объёма</th>
+              <th>Точность объёмов</th>
             </tr>
           </thead>
           <tbody id="benchmark-tbody"></tbody>
         </table>
       </div>
     </div>
-    <div class="modal-ftr">
-      <button class="btn" onclick="closeBenchmarkModal()">Закрыть</button>
+    <div class="mf">
+      <button class="btn" data-close>Закрыть</button>
     </div>
   </div>
 </div>
 
-<!-- Modal: Error / Human-friendly Alert -->
-<div id="error-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeErrorModal()">
-  <div class="modal-card" style="max-width: 560px;">
-    <div class="modal-hdr" style="background:#FFF5F5; border-bottom:1px solid #FED7D7;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:18px;">📁</span>
-        <h3 id="err-modal-title" style="color:var(--bad); font-size:15px;">Не удалось распознать документ</h3>
-      </div>
-      <button class="btn ic" onclick="closeErrorModal()">✕</button>
+<!-- ==================== МОДАЛЬНОЕ ОКНО: ОШИБКИ И СТРУКТУРНЫЕ НЕСООТВЕТСТВИЯ ==================== -->
+<div class="ov" id="error-modal">
+  <div class="mc">
+    <div class="mh" style="color:var(--bad);">
+      <span id="err-modal-title">Ошибка сопоставления</span>
+      <button class="btn" data-close>✕</button>
     </div>
-    <div class="modal-body" style="padding:20px;">
-      <p id="err-modal-msg" style="font-size:14px; line-height:1.5; color:var(--text); margin-bottom:12px; font-weight:500;"></p>
-      
-      <div id="err-modal-details-box" style="display:none; background:#F8FAFC; border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-bottom:14px; font-size:12px; font-family:'IBM Plex Mono', monospace; color:var(--mut); max-height:110px; overflow-y:auto; word-break:break-word;">
-      </div>
-
-      <div style="background:#F0F7FF; border:1px solid #BFDBFE; border-radius:6px; padding:12px 14px; display:flex; gap:10px; align-items:flex-start;">
-        <span style="color:var(--link); font-size:16px; line-height:1.2;">💡</span>
-        <div style="font-size:13px; color:#1E3A8A; line-height:1.45;">
-          <b>Что рекомендуется сделать:</b><br>
-          <span id="err-modal-hint">Убедитесь, что загружаете корректную ведомость объёмов работ (ВОР), дефектную ведомость или локальную смету (по Методике 421/пр) в формате .xlsx.</span>
-        </div>
-      </div>
+    <div class="mb">
+      <p id="err-modal-msg" style="font-weight:600; font-size:13px;"></p>
+      <pre id="err-modal-details-box" class="mono" style="display:none; background:#FFF1F2; border:1px solid #FECACA; padding:8px; border-radius:4px; font-size:11px; max-height:140px; overflow:auto;"></pre>
+      <p id="err-modal-hint" style="font-size:12px; color:var(--mut);"></p>
     </div>
-    <div class="modal-ftr" style="display:flex; justify-content:space-between; gap:10px;">
-      <button class="btn btn-outline" onclick="loadPreset('set1'); closeErrorModal();">
-        Загрузить типовой пример
-      </button>
-      <button class="btn btn-primary" onclick="closeErrorModal()">
-        Понятно
-      </button>
+    <div class="mf">
+      <button class="btn" data-close>Понятно</button>
     </div>
   </div>
 </div>
-
-<!-- Toast Container -->
-<div id="toast-container" style="position:fixed; bottom:24px; right:24px; z-index:9999; display:flex; flex-direction:column; gap:10px; pointer-events:none;"></div>
 
 <script src="/app.js"></script>
 </body>
