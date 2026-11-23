@@ -29,6 +29,7 @@
   <button class="btn" id="bHist" title="История проверок">📁 История</button>
   <button class="btn" id="bCsv" title="Скачать результаты в CSV">📥 CSV</button>
   <button class="btn" id="bAct" title="Сформировать официальный Акт разногласий (Excel)">📥 Акт разногласий (Excel)</button>
+  <button class="btn" id="bHelp" title="Интерактивный помощник: как работать в системе">❓ Обучение</button>
   <button class="btn" id="btn-benchmark" title="Сравнительные замеры алгоритмов (ВКР)" style="display:none;">📊 Бенчмарк</button>
 
   <button class="btn p" id="bTog" title="Свернуть / развернуть панель инспектора">◨ Панель <kbd>Esc</kbd></button>
@@ -212,6 +213,24 @@
     <div class="mf">
       <button class="btn" data-close>Понятно</button>
     </div>
+  </div>
+</div>
+
+<!-- ==================== ИНТЕРАКТИВНЫЙ ОНБОРДИНГ / ТУР ПО СИСТЕМЕ ==================== -->
+<div id="tour-overlay"></div>
+<div id="tour-popover">
+  <div class="tour-hdr">
+    <span id="tour-step-counter">Шаг 1 из 6</span>
+    <button class="btn-text" onclick="stopTour()" title="Закрыть обучение" style="background:none;border:0;cursor:pointer;color:var(--mut);font-size:12px;">✕</button>
+  </div>
+  <div class="tour-body">
+    <h4 id="tour-title"></h4>
+    <p id="tour-desc"></p>
+  </div>
+  <div class="tour-ftr">
+    <button class="btn btn-sm" id="tour-prev" onclick="tourNav(-1)">← Назад</button>
+    <button class="btn btn-sm btn-text" onclick="stopTour()" style="background:none;border:0;color:var(--mut);">Пропустить</button>
+    <button class="btn btn-sm p" id="tour-next" onclick="tourNav(1)">Далее →</button>
   </div>
 </div>
 

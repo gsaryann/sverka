@@ -578,6 +578,13 @@ $('#bAct').onclick = exportDiscrepancyAct;
 // ==================== КЛАВИАТУРНЫЙ КОНВЕЙЕР (HARDWARE CODE) ====================
 addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  if (tourActive) {
+    if (e.key === 'Escape') { stopTour(); return; }
+    if (e.key === 'ArrowRight' || e.code === 'Enter') { e.preventDefault(); tourNav(1); return; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); tourNav(-1); return; }
+  }
+
   const t = e.target;
   if (t.closest && t.closest('input,select,textarea')) {
     if (e.key === 'Escape') t.blur();
@@ -1037,6 +1044,135 @@ window.exportDecisions = () => ROWS.map(r => ({
   financial_risk: r.risk || 0
 }));
 
+// ==================== ИНТЕРАКТИВНЫЙ ОНБОРДИНГ / ОБУЧЕНИЕ ====================
+const TOUR_STEPS = [
+  {
+    target: '#bUp',
+    title: '📁 1. Загрузка смет и параметры сопоставления',
+    desc: 'Здесь выбираются файлы ВОР и ЛСР (по Методике 421/пр) или демонстрационные комплекты. Вы можете настроить режим алгоритма и порог сходства, после чего нажать «Сверить документы».'
+  },
+  {
+    target: '#chips',
+    title: '🚦 2. Статусы и очередь ручного контроля',
+    desc: 'Система распределяет позиции по статусам. Раздел «⏳ Ждут решения» открывается, только если есть спорные позиции. Если всё сошлось чисто — сразу открывается полный реестр сметы!'
+  },
+  {
+    target: '#risk',
+    title: '💸 3. Оценка финансового риска расхождений',
+    desc: 'Индикатор автоматически рассчитывает объём финансового риска по сметным расценкам ЛСР: |V_ЛСР - V_ВОР| × P_ед. Вы сразу видите сумму потенциальной переплаты или дефицита.'
+  },
+  {
+    target: '#insp',
+    title: '🔍 4. Панель детального инспектора',
+    desc: 'Справа отображается подробное сравнение текущей позиции: пословные отличия в наименованиях, сопоставление объёмов с нормативными множителями (10/100/1000) и шифры норм.'
+  },
+  {
+    target: '#foot',
+    title: '⚡ 5. Клавиатурный конвейер решений',
+    desc: 'Проверяйте сметы на максимальной скорости без мыши: <kbd>Y</kbd> — подтвердить пару, <kbd>N</kbd> — отправить в правку с автопереходом к следующей позиции, <kbd>Z</kbd> — отменить, <kbd>/</kbd> — поиск, <kbd>Esc</kbd> — панель.'
+  },
+  {
+    target: '#bAct',
+    title: '📥 6. Официальный Акт разногласий (Excel)',
+    desc: 'По итогам сверки выгрузите готовую Дефектную ведомость расхождений в Excel с реквизитами и полями подписей сторон для Заказчика или Подрядчика.'
+  }
+];
+
+let tourCurrentStep = 0;
+let tourActive = false;
+
+function startOnboardingTour(force = false) {
+  if (!force && localStorage.getItem('sverka_tour_seen')) return;
+  tourCurrentStep = 0;
+  tourActive = true;
+  $('#tour-overlay')?.classList.add('on');
+  $('#tour-popover')?.classList.add('on');
+  showTourStep(0);
+}
+
+function stopTour() {
+  tourActive = false;
+  $('#tour-overlay')?.classList.remove('on');
+  $('#tour-popover')?.classList.remove('on');
+  $$('.tour-highlighted').forEach(el => el.classList.remove('tour-highlighted'));
+  localStorage.setItem('sverka_tour_seen', 'true');
+}
+
+function showTourStep(idx) {
+  if (idx < 0 || idx >= TOUR_STEPS.length) {
+    stopTour();
+    return;
+  }
+  tourCurrentStep = idx;
+  const step = TOUR_STEPS[idx];
+
+  $$('.tour-highlighted').forEach(el => el.classList.remove('tour-highlighted'));
+
+  $('#tour-step-counter').textContent = `Шаг ${idx + 1} из ${TOUR_STEPS.length}`;
+  $('#tour-title').textContent = step.title;
+  $('#tour-desc').innerHTML = step.desc;
+
+  const prevBtn = $('#tour-prev');
+  if (prevBtn) prevBtn.disabled = (idx === 0);
+  const nextBtn = $('#tour-next');
+  if (nextBtn) nextBtn.textContent = (idx === TOUR_STEPS.length - 1) ? 'Завершить ✓' : 'Далее →';
+
+  const targetEl = $(step.target);
+  const popover = $('#tour-popover');
+
+  if (targetEl && targetEl.offsetParent !== null) {
+    targetEl.classList.add('tour-highlighted');
+    const rect = targetEl.getBoundingClientRect();
+    const popWidth = Math.min(390, window.innerWidth - 32);
+    const popHeight = 220;
+
+    let top = rect.bottom + 10;
+    let left = rect.left;
+
+    if (step.target === '#foot') {
+      top = rect.top - popHeight - 12;
+      left = Math.max(16, rect.left + 20);
+    } else if (step.target === '#insp') {
+      top = rect.top + 20;
+      left = rect.left - popWidth - 14;
+    }
+
+    if (left + popWidth > window.innerWidth - 16) {
+      left = window.innerWidth - popWidth - 16;
+    }
+    if (left < 16) left = 16;
+
+    if (top + popHeight > window.innerHeight - 16) {
+      top = Math.max(16, rect.top - popHeight - 10);
+    }
+    if (top < 16) top = 16;
+
+    popover.style.top = `${top}px`;
+    popover.style.left = `${left}px`;
+    popover.style.transform = 'none';
+  } else {
+    popover.style.top = '50%';
+    popover.style.left = '50%';
+    popover.style.transform = 'translate(-50%, -50%)';
+  }
+}
+
+function tourNav(delta) {
+  showTourStep(tourCurrentStep + delta);
+}
+
+const bHelp = $('#bHelp');
+if (bHelp) bHelp.onclick = () => startOnboardingTour(true);
+
+$('#tour-overlay')?.addEventListener('click', stopTour);
+
 // Старт
 checkAuth();
 render();
+
+// Автоматический интерактивный помощник при первом запуске
+setTimeout(() => {
+  if (!localStorage.getItem('sverka_tour_seen')) {
+    startOnboardingTour(false);
+  }
+}, 800);
