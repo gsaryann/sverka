@@ -319,6 +319,23 @@ function renderInfo() {
     e.innerHTML = '';
     return;
   }
+
+  if (tourDemoLoaded) {
+    e.innerHTML = `
+      <div class="box" style="margin:8px 12px 0;display:flex;gap:10px;align-items:center;padding:6px 12px;background:#EFF6FF;border-color:#BFDBFE;flex-wrap:wrap">
+        <span style="font-size:12.5px;">💡 <b>Демо-режим обучения</b>: показаны 4 демонстрационные позиции (коллизия, пересчёт единиц, точное совпадение, отсутствие в смете). Нажмите <kbd>Y</kbd> или <kbd>N</kbd> для опробования конвейера.</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm p" id="btn-demo-upload">📁 Загрузить свои сметы</button>
+        <button class="btn btn-sm" id="btn-demo-clear">✕ Очистить демо</button>
+      </div>
+    `;
+    const bUp = $('#btn-demo-upload');
+    if (bUp) bUp.onclick = () => openM('#mUp');
+    const bClr = $('#btn-demo-clear');
+    if (bClr) bClr.onclick = () => clearTourDemo();
+    return;
+  }
+
   const c = f => ROWS.filter(r => r.st === f).length;
   const pending = ROWS.filter(todo).length;
 
@@ -730,6 +747,7 @@ async function loadProjectFromDB(id) {
 
     currentProjectTitle = data.title;
     currentProjectId = data.id;
+    tourDemoLoaded = false;
     ROWS = (data.items || []).map(it => {
       const item = {
         n: it.n,
@@ -828,6 +846,7 @@ async function runCompare() {
       guard.style.display = 'block';
     }
 
+    tourDemoLoaded = false;
     // Заполняем ROWS
     ROWS = (data.rows || []).map((r, idx) => {
       const cls = r['Исходный класс'] || r['Результат алгоритма'] || '';
@@ -1047,36 +1066,200 @@ window.exportDecisions = () => ROWS.map(r => ({
 }));
 
 // ==================== ИНТЕРАКТИВНЫЙ ОНБОРДИНГ / ОБУЧЕНИЕ ====================
+let tourDemoLoaded = false;
+
+const DEMO_TOUR_ROWS = [
+  {
+    n: 1,
+    vor_num: '1',
+    lsr_num: '1.1',
+    vor: 'Устройство перегородок из гипсокартона в 2 слоя со звукоизоляцией',
+    lsr: 'Устройство перегородок из гипсокартонных листов (ГКЛ) с одинарным металлическим каркасом',
+    code: 'ГЭСН 10-06-034-01',
+    vv: 120.0,
+    lv: 150.0,
+    u: 'м2',
+    pr: 1450.0,
+    risk: 43500,
+    s: 'diff',
+    cls: 'Коллизия: расхождение объёма (+30 м2)',
+    sim: 88,
+    ai: false,
+    note: 'Объём в смете (150 м2) превышает проектный объём ВОР (120 м2) на +30 м2. Финансовый риск: 43 500 ₽.'
+  },
+  {
+    n: 2,
+    vor_num: '2',
+    lsr_num: '2.1',
+    vor: 'Монтаж светильников светодиодных потолочных типа Armstrong',
+    lsr: 'Установка светильников люминесцентных и светодиодных в подвесных потолках',
+    code: 'ФЕРм 08-03-593-07',
+    vv: 45.0,
+    lv: 0.45,
+    u: 'шт',
+    pr: 8920.0,
+    risk: 0,
+    unit_multiplier: 100,
+    s: 'unit',
+    cls: 'Пересчёт единиц (×100)',
+    sim: 92,
+    ai: false,
+    note: 'ЛСР составлен в укрупненных единицах (100 шт). Физический объём полностью эквивалентен.'
+  },
+  {
+    n: 3,
+    vor_num: '3',
+    lsr_num: '3.1',
+    vor: 'Окраска стен водоэмульсионными составами за 2 раза по подготовленной поверхности',
+    lsr: 'Окраска водно-дисперсионными составами внутренних поверхностей стен',
+    code: 'ФЕР 15-04-005-01',
+    vv: 340.0,
+    lv: 340.0,
+    u: 'м2',
+    pr: 280.0,
+    risk: 0,
+    s: 'ok',
+    cls: 'Совпало',
+    sim: 96,
+    ai: false,
+    note: 'Полное совпадение наименования технологии, шифра и объёма работ.'
+  },
+  {
+    n: 4,
+    vor_num: '4',
+    lsr_num: null,
+    vor: 'Установка вентиляционных решеток регулируемых металлических 200х200 мм',
+    lsr: null,
+    code: '',
+    vv: 12.0,
+    lv: null,
+    u: 'шт',
+    pr: 1850.0,
+    risk: 22200,
+    s: 'none',
+    cls: 'Нет в смете',
+    sim: 0,
+    ai: false,
+    note: 'Позиция ВОР отсутствует в локальной смете Подрядчика. Требуется включение в доп. смету.'
+  }
+];
+
+function ensureDemoDataForTour() {
+  if (!ROWS || ROWS.length === 0) {
+    tourDemoLoaded = true;
+    ROWS = DEMO_TOUR_ROWS.map(r => {
+      const it = { ...r };
+      classifyItem(it);
+      return it;
+    });
+    S.dec = {};
+    S.fl = 'all';
+    S.sel = 1;
+    S.open = true;
+    render(true);
+  } else {
+    S.open = true;
+    if (!S.sel && ROWS[0]) S.sel = ROWS[0].n;
+    render(true);
+  }
+}
+
+function clearTourDemo() {
+  tourDemoLoaded = false;
+  ROWS = [];
+  S.dec = {};
+  S.open = false;
+  S.sel = null;
+  render();
+  toast('Демо-данные очищены. Загрузите сметную документацию.');
+}
+
 const TOUR_STEPS = [
   {
     target: '#bUp',
     title: '📁 1. Загрузка смет и параметры сопоставления',
-    desc: 'Здесь выбираются файлы ВОР и ЛСР (по Методике 421/пр) или демонстрационные комплекты. Вы можете настроить режим алгоритма и порог сходства, после чего нажать «Сверить документы».'
+    desc: `
+      <p>Здесь выбираются файлы ВОР и ЛСР (по Методике 421/пр) или демонстрационные комплекты объектов ВКР.</p>
+      <div class="tour-example">
+        <b>Пример эталонной пары:</b><br>
+        • ВОР: <code>ВОР_Дворец.xlsx</code> (86 поз.)<br>
+        • ЛСР: <code>ЛСР_Дворец_421пр.xlsx</code> (по форме Приказа 421/пр)
+      </div>
+    `
   },
   {
     target: '#chips',
     title: '🚦 2. Статусы и очередь ручного контроля',
-    desc: 'Система распределяет позиции по статусам. Раздел «⏳ Ждут решения» открывается, только если есть спорные позиции. Если всё сошлось чисто — сразу открывается полный реестр сметы!'
+    desc: `
+      <p>Интеллектуальный фильтр разделяет позиции по статусам для быстрого аудита:</p>
+      <div class="tour-example" style="display:flex;flex-direction:column;gap:3px;">
+        <div><span class="pl s-ok">✓ Совпало</span> — 100% совпадение наименования и объёма</div>
+        <div><span class="pl s-unit">×100 Пересчёт ед.</span> — ЛСР в укрупнённых единицах (100 шт, 10 м)</div>
+        <div><span class="pl s-diff">Δ Расхождение</span> — разница в объёмах с расчётом финансового риска</div>
+        <div><span class="pl s-none">Нет в смете</span> — проектная позиция пропущена Подрядчиком</div>
+      </div>
+    `
   },
   {
     target: '#risk',
     title: '💸 3. Оценка финансового риска расхождений',
-    desc: 'Индикатор автоматически рассчитывает объём финансового риска по сметным расценкам ЛСР: |V_ЛСР - V_ВОР| × P_ед. Вы сразу видите сумму потенциальной переплаты или дефицита.'
+    desc: `
+      <p>Автоматический расчёт объёма финансовых разногласий по расценкам сметы:</p>
+      <div class="tour-example">
+        <b>Формула расчёта риска:</b><br>
+        <code>|V_ЛСР − V_ВОР| × P_ед = Сумма риска</code><br>
+        <div style="margin-top:4px;color:var(--diff);font-weight:700;">
+          Пример: |150 м² − 120 м²| × 1 450 ₽/м² = 43 500 ₽
+        </div>
+      </div>
+    `
+  },
+  {
+    target: 'tr.sel',
+    title: '📋 4. Сверка позиций в реестре',
+    desc: `
+      <p>Каждая строка отображает сопоставленные позиции ВОР и ЛСР с шифром расценки и разницей в объёмах:</p>
+      <div class="tour-example">
+        <b>Позиция #1:</b> ВОР 120.00 м² → ЛСР 150.00 м² <span class="pl s-diff">Δ +30.00</span><br>
+        Шифр: <code>ГЭСН 10-06-034-01</code> · Сходство: <b>88%</b> · Риск: <b>43 500 ₽</b>
+      </div>
+    `
   },
   {
     target: '#insp',
-    title: '🔍 4. Панель детального инспектора',
-    desc: 'Справа отображается подробное сравнение текущей позиции: пословные отличия в наименованиях, сопоставление объёмов с нормативными множителями (10/100/1000) и шифры норм.'
+    title: '🔍 5. Панель детального инспектора',
+    desc: `
+      <p>Справа отображается углубленный аудит текущей позиции: пословные отличия в наименованиях, сопоставление объёмов и финансовые последствия.</p>
+      <div class="tour-example">
+        <b>Сравнение формулировок:</b><br>
+        ВОР: Устройство перегородок из <b>гипсокартона в 2 слоя</b><br>
+        ЛСР: Устройство перегородок из <b>гипсокартонных листов (ГКЛ)</b>
+      </div>
+    `
   },
   {
     target: '#foot',
-    title: '⚡ 5. Клавиатурный конвейер решений',
-    desc: 'Проверяйте сметы на максимальной скорости без мыши: <kbd>Y</kbd> — подтвердить пару, <kbd>N</kbd> — отправить в правку с автопереходом к следующей позиции, <kbd>Z</kbd> — отменить, <kbd>/</kbd> — поиск, <kbd>Esc</kbd> — панель.'
+    title: '⚡ 6. Клавиатурный конвейер решений',
+    desc: `
+      <p>Скоростной аудит разногласий без использования мыши:</p>
+      <div class="tour-example" style="display:flex;flex-wrap:wrap;gap:6px;">
+        <span><kbd>Y</kbd> Принять объём ЛСР</span>
+        <span><kbd>N</kbd> Отправить в правку</span>
+        <span><kbd>Z</kbd> Отменить решение</span>
+        <span><kbd>/</kbd> Поиск</span>
+        <span><kbd>Esc</kbd> Панель</span>
+      </div>
+    `
   },
   {
     target: '#bAct',
-    title: '📥 6. Официальный Акт разногласий (Excel)',
-    desc: 'По итогам сверки выгрузите готовую Дефектную ведомость расхождений в Excel с реквизитами и полями подписей сторон для Заказчика или Подрядчика.'
+    title: '📥 7. Официальный Акт разногласий (Excel)',
+    desc: `
+      <p>Выгрузка готовой дефектной ведомости расхождений в Excel по стандарту сметных сверок:</p>
+      <div class="tour-example">
+        Включает титульную шапку объекта, таблицу расхождений с нормативными шифрами, суммы риска и поля для подписей сторон.
+      </div>
+    `
   }
 ];
 
@@ -1085,6 +1268,7 @@ let tourActive = false;
 
 function startOnboardingTour(force = false) {
   if (!force && localStorage.getItem('sverka_tour_seen')) return;
+  ensureDemoDataForTour();
   tourCurrentStep = 0;
   tourActive = true;
   $('#tour-overlay')?.classList.add('on');
@@ -1098,6 +1282,9 @@ function stopTour() {
   $('#tour-popover')?.classList.remove('on');
   $$('.tour-highlighted').forEach(el => el.classList.remove('tour-highlighted'));
   localStorage.setItem('sverka_tour_seen', 'true');
+  if (tourDemoLoaded) {
+    toast('Обучение завершено! Опробуйте горячие клавиши Y/N на демо-данных или загрузите свои сметы.');
+  }
 }
 
 function showTourStep(idx) {
@@ -1125,8 +1312,8 @@ function showTourStep(idx) {
   if (targetEl && targetEl.offsetParent !== null) {
     targetEl.classList.add('tour-highlighted');
     const rect = targetEl.getBoundingClientRect();
-    const popWidth = Math.min(390, window.innerWidth - 32);
-    const popHeight = 220;
+    const popWidth = Math.min(420, window.innerWidth - 32);
+    const popHeight = 270;
 
     let top = rect.bottom + 10;
     let left = rect.left;
@@ -1137,6 +1324,9 @@ function showTourStep(idx) {
     } else if (step.target === '#insp') {
       top = rect.top + 20;
       left = rect.left - popWidth - 14;
+    } else if (step.target === 'tr.sel') {
+      top = rect.bottom + 10;
+      left = Math.max(16, rect.left + 60);
     }
 
     if (left + popWidth > window.innerWidth - 16) {

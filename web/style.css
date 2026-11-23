@@ -229,6 +229,22 @@ kbd { border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 3
   line-height: 1.45;
   margin: 0;
 }
+.tour-example {
+  background: #F8FAFC;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  color: var(--ink);
+  line-height: 1.45;
+}
+.tour-example code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  background: #EFF3F8;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
 .tour-ftr {
   background: #FAFBFC;
   padding: 8px 12px;
