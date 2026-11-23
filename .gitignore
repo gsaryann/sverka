@@ -27,4 +27,14 @@ llm_cache.json
 ДОКЛАД*.md
 results/*.png
 
+# Локальные базы, логи и выгруженные отчеты
+*.log
+*.sqlite
+*.sqlite3
+*.db
+Акт_разногласий*.xlsx
+act_discrepancies*.xlsx
+sverka_results*.csv
+
+
 
