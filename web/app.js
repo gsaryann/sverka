@@ -167,6 +167,16 @@ function renderHead() {
 }
 
 function renderTable() {
+  if (!ROWS.length) {
+    $('#tb').innerHTML = `
+      <tr><td colspan="8" style="padding:48px 20px;text-align:center;">
+        <div style="font-size:16px;font-weight:700;color:var(--ink);margin-bottom:8px;">📋 Документы ещё не загружены</div>
+        <div class="mut" style="font-size:12.5px;margin-bottom:16px;">Нажмите кнопку выбора файлов в шапке, выберите сметные документы или демонстрационный комплект и запустите сверку.</div>
+        <button class="btn p" id="btn-open-upload-modal">📁 Выбрать файлы и параметры сверки</button>
+      </td></tr>
+    `;
+    return [];
+  }
   const v = visible();
   const c = f => ROWS.filter(r => r.st === f).length;
   const emptyHtml = (S.fl === 'need' && !S.q) ? `
@@ -395,6 +405,10 @@ const first = () => { const v = visible(); if (v.length && !v.some(r => r.n === 
 
 // ==================== ОБРАБОТЧИКИ СОБЫТИЙ ТАБЛИЦЫ И ИНСПЕКТОРА ====================
 $('#tb').onclick = e => {
+  if (e.target.id === 'btn-open-upload-modal') {
+    openM('#mUp');
+    return;
+  }
   if (e.target.id === 'btn-show-all-empty') {
     S.fl = 'all';
     first();
@@ -903,17 +917,36 @@ function loadPreset(key, btnEl) {
   else if (key === 'kaluga') currentProjectTitle = 'Комплект 3 · Ремонт кабинетов (534 поз.)';
   else if (key === 'set2') currentProjectTitle = 'Комплект 4 · Помещение 163 (83 поз.)';
 
-  runCompare();
+  const infoEl = $('#selected-preset-info');
+  if (infoEl) {
+    infoEl.innerHTML = `✓ Выбран: <b>${esc(currentProjectTitle)}</b>. Настройте режим сопоставления и нажмите кнопку «Сверить документы».`;
+    infoEl.style.color = 'var(--ok)';
+  }
+  toast(`Выбран ${currentProjectTitle}`);
 }
 
-$('#f-vor').addEventListener('change', () => {
+function onFilesChanged() {
   activePreset = null;
   $$('.preset-pill').forEach(b => b.classList.remove('active'));
-});
-$('#f-lsr').addEventListener('change', () => {
-  activePreset = null;
-  $$('.preset-pill').forEach(b => b.classList.remove('active'));
-});
+  const fv = $('#f-vor').files[0];
+  const fl = $('#f-lsr').files[0];
+  const infoEl = $('#selected-preset-info');
+  if (infoEl) {
+    if (fv && fl) {
+      infoEl.innerHTML = `Выбраны файлы: <b>${esc(fv.name)}</b> и <b>${esc(fl.name)}</b>. Нажмите «Сверить документы».`;
+      infoEl.style.color = 'var(--ink)';
+    } else if (fv) {
+      infoEl.innerHTML = `Выбран ВОР: <b>${esc(fv.name)}</b>. Выберите файл сметы (ЛСР).`;
+      infoEl.style.color = 'var(--mut)';
+    } else if (fl) {
+      infoEl.innerHTML = `Выбран ЛСР: <b>${esc(fl.name)}</b>. Выберите файл ведомости объёмов (ВОР).`;
+      infoEl.style.color = 'var(--mut)';
+    }
+  }
+}
+
+$('#f-vor').addEventListener('change', onFilesChanged);
+$('#f-lsr').addEventListener('change', onFilesChanged);
 
 // ==================== БЕНЧМАРК (ВКР) ====================
 function openBenchmarkModal() { openM('#modal-benchmark'); }
@@ -971,11 +1004,17 @@ async function checkAuth() {
       const pBar = $('#presets-bar');
       if (pBar) pBar.style.display = isLead ? 'flex' : 'none';
 
-      // Автоматическая загрузка эталонного комплекта №1 для lead / демонстрации
+      // Для роли lead предварительно отмечаем эталонный комплект №1 в окне, но НЕ запускаем сверку без команды пользователя
       if (isLead && !ROWS.length) {
         activePreset = 'set1';
         currentProjectTitle = 'Комплект 1 · Дворец молодёжи (86 поз.)';
-        runCompare();
+        const firstPill = document.querySelector('.preset-pill');
+        if (firstPill) firstPill.classList.add('active');
+        const infoEl = $('#selected-preset-info');
+        if (infoEl) {
+          infoEl.innerHTML = `✓ Выбран: <b>${esc(currentProjectTitle)}</b>. Проверьте настройки и нажмите «Сверить документы».`;
+          infoEl.style.color = 'var(--ok)';
+        }
       }
     } else {
       window.location.href = '/login';
