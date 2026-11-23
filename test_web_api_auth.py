@@ -182,6 +182,9 @@ class TestWebApiAuthAndProjects(unittest.TestCase):
 
     def test_export_discrepancy_act(self):
         """Проверка генерации официального Акта разногласий в Excel."""
+        import web.web_app
+        web.web_app.LAST_RESULTS = []
+
         # 1. Запрос без данных -> 400
         res_empty = self.client.get("/api/export_discrepancy_act")
         self.assertEqual(res_empty.status_code, 400)
@@ -236,6 +239,21 @@ class TestWebApiAuthAndProjects(unittest.TestCase):
         self.assertIn("Дворец молодёжи", ws["C4"].value)
         # Проверяем строку с риском (строка 9)
         self.assertEqual(ws["J9"].value, 2275.0)
+
+    def test_all_vkr_presets_comparison(self):
+        """Проверка запуска сопоставления для всех демонстрационных комплектов ВКР."""
+        presets_expected = [
+            ("set1", 86),
+            ("crystal", 137),
+            ("kaluga", 534),
+            ("set2", 83)
+        ]
+        for preset_key, expected_rows in presets_expected:
+            res = self.client.post("/api/compare", data={"preset": preset_key, "mode": "algo", "threshold": "0.55"})
+            self.assertEqual(res.status_code, 200, f"Preset {preset_key} returned {res.status_code}: {res.get_data(as_text=True)}")
+            data = res.get_json()
+            self.assertIn("rows", data)
+            self.assertEqual(len(data["rows"]), expected_rows, f"Preset {preset_key} expected {expected_rows} rows, got {len(data['rows'])}")
 
 
 if __name__ == "__main__":

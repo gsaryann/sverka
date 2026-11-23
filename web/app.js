@@ -823,8 +823,18 @@ async function runCompare() {
     S.sel = S.sel ?? visible()[0]?.n;
     S.open = true;
 
-    const vorName = fVor ? fVor.name : `${activePreset || 'ВОР'}.xlsx`;
-    const lsrName = fLsr ? fLsr.name : `${activePreset || 'ЛСР'}.xlsx`;
+    const vorName = fVor ? fVor.name : (
+      activePreset === 'set1' ? 'ВОР_Дворец.xlsx' :
+      activePreset === 'crystal' ? 'ВОР_Кристалл_освещение.xlsx' :
+      activePreset === 'kaluga' ? 'ВОР_Кабинеты_1этаж.xlsx' :
+      activePreset === 'set2' ? 'ВОР_Помещение_163.xlsx' : `${activePreset || 'ВОР'}.xlsx`
+    );
+    const lsrName = fLsr ? fLsr.name : (
+      activePreset === 'set1' ? 'ЛСР_Дворец_421пр.xlsx' :
+      activePreset === 'crystal' ? 'ЛСР_Кристалл_освещение.xlsx' :
+      activePreset === 'kaluga' ? 'ЛСР_Кабинеты_1этаж.xlsx' :
+      activePreset === 'set2' ? 'ЛСР_Помещение_163.xlsx' : `${activePreset || 'ЛСР'}.xlsx`
+    );
     $('#files-lbl').textContent = `${vorName} · ${ROWS.length} → ${lsrName} ▾`;
 
     closeM();

@@ -72,6 +72,27 @@ def _document_kind(path: Path) -> str | None:
     return 'vor' if vor_score > lsr_score else 'lsr'
 
 
+def _resolve_preset_paths(preset: str | None) -> tuple[Path, Path] | None:
+    """Определяет пути к файлам ВОР и ЛСР для эталонных демонстрационных комплектов."""
+    if not preset:
+        return None
+    p = str(preset).strip().lower()
+    if p in ('set1', 'palace', 'дворец'):
+        return DATA_DIR / "ВОР.xlsx", DATA_DIR / "ЛСР.xlsx"
+    elif p in ('crystal', 'lighting', 'кристалл', 'освещение'):
+        return DATA_DIR / "ВОР освещение КОРР.xlsx", DATA_DIR / "ЛСР освещение КОРР.xlsx"
+    elif p in ('kaluga', 'cabinets', 'калуга', 'кабинеты'):
+        return DATA_DIR / "ВОР (1 этаж кабинеты).xlsx", DATA_DIR / "ЛСР (1 этаж кабинеты).xlsx"
+    elif p in ('set2', 'room163', 'пом163'):
+        return DATA_DIR / "ВЕДОМОСТЬ ОБЪЕМОВ РАБОТ.xlsx", DATA_DIR / "ЛОКАЛЬНЫЙ СМЕТНЫЙ РАСЧЕТ.xlsx"
+    elif p in ('tea', 'anastasyevka', 'анастасьевка', 'чайная'):
+        return (
+            DATA_DIR / "02_01_01_чайная_Анастасьевка__Текущий_ремонт___Дефектная_ведомость_по_смете_2.xlsx",
+            DATA_DIR / "02_01_01_чайная_Анастасьевка__Текущий_ремонт___ЛСР_по_Методике_2020__РИМ__2.xlsx"
+        )
+    return None
+
+
 def _validate_document_pair(vor_path: Path, lsr_path: Path) -> str | None:
     if hashlib.sha256(vor_path.read_bytes()).digest() == hashlib.sha256(lsr_path.read_bytes()).digest():
         return 'Загружен один и тот же файл в оба поля. Выберите отдельные ВОР и ЛСР.'
@@ -315,12 +336,9 @@ def api_compare():
     tmp_files_to_clean = []
 
     try:
-        if preset == 'set1':
-            vor_path = DATA_DIR / "ВОР.xlsx"
-            lsr_path = DATA_DIR / "ЛСР.xlsx"
-        elif preset == 'set2':
-            vor_path = DATA_DIR / "ВЕДОМОСТЬ ОБЪЕМОВ РАБОТ.xlsx"
-            lsr_path = DATA_DIR / "ЛОКАЛЬНЫЙ СМЕТНЫЙ РАСЧЕТ.xlsx"
+        preset_paths = _resolve_preset_paths(preset)
+        if preset_paths:
+            vor_path, lsr_path = preset_paths
         else:
             if 'vor' not in request.files or 'lsr' not in request.files:
                 return jsonify({'error': 'Не переданы файлы ВОР и ЛСР'}), 400
@@ -426,12 +444,9 @@ def api_compare_stream():
     tmp_files_to_clean = []
 
     try:
-        if preset == 'set1':
-            vor_path = DATA_DIR / "ВОР.xlsx"
-            lsr_path = DATA_DIR / "ЛСР.xlsx"
-        elif preset == 'set2':
-            vor_path = DATA_DIR / "ВЕДОМОСТЬ ОБЪЕМОВ РАБОТ.xlsx"
-            lsr_path = DATA_DIR / "ЛОКАЛЬНЫЙ СМЕТНЫЙ РАСЧЕТ.xlsx"
+        preset_paths = _resolve_preset_paths(preset)
+        if preset_paths:
+            vor_path, lsr_path = preset_paths
         else:
             if 'vor' not in request.files or 'lsr' not in request.files:
                 return jsonify({'error': 'Не переданы файлы ВОР и ЛСР'}), 400
@@ -646,12 +661,12 @@ def api_benchmark():
         shuffle = bool(data.get('shuffle', False))
         stress = bool(data.get('stress', True))
 
-        if preset == 'set1':
+        preset_paths = _resolve_preset_paths(preset)
+        if preset_paths:
+            vor_path, lsr_path = preset_paths
+        else:
             vor_path = DATA_DIR / "ВОР.xlsx"
             lsr_path = DATA_DIR / "ЛСР.xlsx"
-        else:
-            vor_path = DATA_DIR / "ВЕДОМОСТЬ ОБЪЕМОВ РАБОТ.xlsx"
-            lsr_path = DATA_DIR / "ЛОКАЛЬНЫЙ СМЕТНЫЙ РАСЧЕТ.xlsx"
 
         vor = parse_vor(str(vor_path))
         lsr = parse_lsr(str(lsr_path))
