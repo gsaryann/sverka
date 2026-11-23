@@ -1,4 +1,4 @@
-/* Клиентская логика инженерного терминала СверкаСмет (SmartMatcher · B2B SaaS · Вариант E v2) */
+/* Клиентская логика инженерного терминала СверкаСмет (SmartMatcher · Методика 421/пр · Вариант E v2) */
 
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);

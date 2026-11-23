@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>СверкаСмет (SmartMatcher) | Интеллектуальный B2B аудит сметной документации</title>
+  <title>СверкаСмет (SmartMatcher) | Интеллектуальный аудит сметной документации (Методика 421/пр)</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
@@ -706,15 +706,14 @@
       <nav class="nav">
         <div class="brand">
           <b>СверкаСмет</b>
-          <span>SmartMatcher · B2B SaaS</span>
+          <span>SmartMatcher · Методика 421/пр</span>
         </div>
         <div class="nav-links">
           <a href="#terminal">Интерфейс</a>
           <a href="#comparison">Excel vs Платформа</a>
-          <a href="#calc">Калькулятор ROI</a>
+          <a href="#calc">Калькулятор окупаемости</a>
           <a href="#pricing">Тарифы</a>
-          <a href="/login" class="btn btn-outline">Войти</a>
-          <a href="/login" class="btn btn-primary">Личный кабинет</a>
+          <a href="/login" id="nav-auth-btn" class="btn btn-primary">Вход в терминал →</a>
         </div>
       </nav>
     </div>
@@ -760,7 +759,7 @@
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
               <span style="font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:#166534; background:#DCFCE7; border:1px solid #BBF7D0; border-radius:4px; padding:3px 8px; font-weight:600;">● PostgreSQL 17 Active</span>
-              <a href="/login" class="btn btn-primary" style="font-size:12px; padding:5px 14px; text-decoration:none;">Открыть терминал →</a>
+              <a href="/app" class="btn btn-primary" style="font-size:12px; padding:5px 14px; text-decoration:none;">Открыть терминал →</a>
             </div>
           </div>
 
@@ -950,7 +949,7 @@
           <tr>
             <th style="width:28%;">Параметр процесса</th>
             <th style="width:36%;">Ручная сверка инженером (Excel / бумага)</th>
-            <th style="width:36%;">SmartMatcher B2B Platform</th>
+            <th style="width:36%;">СверкаСмет (SmartMatcher)</th>
           </tr>
         </thead>
         <tbody>
@@ -1083,8 +1082,8 @@
 
       <!-- Профессионал -->
       <div class="price-card popular">
-        <span class="popular-tag">Выбор девелоперов</span>
-        <h4>Сметный отдел (SaaS)</h4>
+        <span class="popular-tag">Выбор организаций</span>
+        <h4>Сметный отдел (Организация)</h4>
         <div class="price-val">4 900 ₽ <small>/ месяц</small></div>
         <div class="price-desc">Для сметных бюро, технического надзора и подрядных организаций.</div>
         <ul class="price-features">
@@ -1217,6 +1216,17 @@
       document.getElementById("roi-hours").textContent = hoursSaved + " ч";
       document.getElementById("roi-money").textContent = moneyPrevented + " млн ₽";
     }
+
+    // Проверка статуса авторизации для кнопки в шапке
+    fetch('/api/auth/me').then(r => r.json()).then(d => {
+      if (d.logged_in && d.user) {
+        const btn = document.getElementById("nav-auth-btn");
+        if (btn) {
+          btn.textContent = `Терминал (${d.user.username}) →`;
+          btn.href = "/app";
+        }
+      }
+    }).catch(() => {});
   </script>
 </body>
 </html>
