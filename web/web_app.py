@@ -180,6 +180,7 @@ ORIG_RESULTS: List[Dict[str, Any]] = []
 FIELDS = [
     'ВОР №', 'ВОР строка', 'ВОР раздел', 'ВОР: наименование', 'ВОР: единица', 'ВОР: количество',
     'ЛСР №', 'ЛСР строка', 'ЛСР раздел', 'ЛСР шифр', 'ЛСР: наименование', 'ЛСР: единица', 'ЛСР: количество',
+    'unit_price', 'total_price', 'financial_risk',
     'Текстовое сходство', 'Уверенность', 'Результат алгоритма', 'Причина решения и расхождения',
     'Коллизия (неоднозначность)', 'Решение ИИ-арбитра',
     'Статус решения сметчика', 'Исходный класс', 'Верхний статус', 'Предупреждение о формулировке',
@@ -772,6 +773,304 @@ def api_download_csv():
         csv_bytes,
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment;filename=sverka_results.csv"}
+    )
+
+
+def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "Сверка сметной документации", user_name: str = "Инженер-сметчик") -> io.BytesIO:
+    """Генерация официального Акта разногласий (Дефектной ведомости расхождений) в формате Excel."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from datetime import datetime
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Акт разногласий"
+    ws.views.sheetView[0].showGridLines = True
+
+    c_navy = "1F3A5F"
+    c_diff_bg = "FFF3E0"  # фон для расхождений объёма / коллизий
+    c_none_bg = "FFEBEE"  # фон для отсутствующих в смете
+    c_total_bg = "E6EBF1"
+
+    font_title = Font(name="Calibri", size=15, bold=True, color="1F3A5F")
+    font_sub = Font(name="Calibri", size=10, italic=True, color="5F6F84")
+    font_meta = Font(name="Calibri", size=10, bold=False, color="1D2733")
+    font_meta_b = Font(name="Calibri", size=10, bold=True, color="1F3A5F")
+    font_th = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    font_td = Font(name="Calibri", size=10, color="1D2733")
+    font_diff = Font(name="Calibri", size=10, bold=True, color="C2561B")
+    font_total = Font(name="Calibri", size=11, bold=True, color="1F3A5F")
+
+    fill_th = PatternFill(start_color=c_navy, end_color=c_navy, fill_type="solid")
+    fill_diff = PatternFill(start_color=c_diff_bg, end_color=c_diff_bg, fill_type="solid")
+    fill_none = PatternFill(start_color=c_none_bg, end_color=c_none_bg, fill_type="solid")
+    fill_total = PatternFill(start_color=c_total_bg, end_color=c_total_bg, fill_type="solid")
+
+    thin_border = Side(border_style="thin", color="D3DAE3")
+    border_cell = Border(left=thin_border, right=thin_border, top=thin_border, bottom=thin_border)
+    border_total = Border(top=Side(border_style="double", color="1F3A5F"), bottom=thin_border, left=thin_border, right=thin_border)
+
+    # 1. Шапка документа
+    ws.merge_cells("A1:M1")
+    ws["A1"] = "АКТ РАЗНОГЛАСИЙ И ВЕДОМОСТЬ РАСХОЖДЕНИЙ"
+    ws["A1"].font = font_title
+    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
+
+    ws.merge_cells("A2:M2")
+    ws["A2"] = "по результатам сопоставления Ведомости объёмов работ (ВОР) и Локального сметного расчёта (ЛСР по Методике 421/пр)"
+    ws["A2"].font = font_sub
+    ws["A2"].alignment = Alignment(horizontal="left", vertical="center")
+
+    date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
+    ws["A4"] = "Объект строительства:"
+    ws["A4"].font = font_meta_b
+    ws["C4"] = title or "Объект сметного аудита"
+    ws["C4"].font = font_meta
+
+    ws["A5"] = "Дата формирования:"
+    ws["A5"].font = font_meta_b
+    ws["C5"] = date_str
+    ws["C5"].font = font_meta
+
+    ws["G4"] = "Ответственный сметчик:"
+    ws["G4"].font = font_meta_b
+    ws["I4"] = user_name or "Инженер-сметчик"
+    ws["I4"].font = font_meta
+
+    # 2. Заголовки таблицы
+    headers = [
+        "№ п/п",
+        "Позиция ВОР (Проект)",
+        "Позиция / Расценка ЛСР (Смета)",
+        "Сметный шифр",
+        "Объём ВОР",
+        "Объём ЛСР",
+        "Разница ΔV",
+        "Ед. изм.",
+        "Сметная цена за ед., ₽",
+        "Финансовый риск, ₽",
+        "Статус сопоставления",
+        "Решение сметчика",
+        "Обоснование / Примечание"
+    ]
+
+    header_row = 7
+    ws.row_dimensions[header_row].height = 28
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=header_row, column=col_idx, value=h)
+        cell.font = font_th
+        cell.fill = fill_th
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border_cell
+
+    current_row = header_row + 1
+    total_risk = 0.0
+
+    for idx, it in enumerate(items, 1):
+        ws.row_dimensions[current_row].height = 22
+
+        n = it.get('n', idx)
+        vor_name = it.get('vor') or it.get('ВОР: наименование') or ''
+        lsr_name = it.get('lsr') or it.get('ЛСР: наименование') or ''
+        code = it.get('code') or it.get('ЛСР шифр') or ''
+
+        vv = it.get('vv') if it.get('vv') is not None else it.get('ВОР: количество')
+        lv = it.get('lv') if it.get('lv') is not None else it.get('ЛСР: количество')
+        try:
+            vv_val = float(vv) if vv is not None and vv != '' else None
+        except (ValueError, TypeError):
+            vv_val = None
+        try:
+            lv_val = float(lv) if lv is not None and lv != '' else None
+        except (ValueError, TypeError):
+            lv_val = None
+
+        u = it.get('u') or it.get('ВОР: единица') or it.get('ЛСР: единица') or ''
+
+        pr = it.get('pr') if it.get('pr') is not None else it.get('unit_price')
+        try:
+            pr_val = float(pr) if pr is not None and pr != '' else None
+        except (ValueError, TypeError):
+            pr_val = None
+
+        risk = it.get('risk') if it.get('risk') is not None else it.get('financial_risk')
+        try:
+            risk_val = float(risk) if risk is not None and risk != '' else 0.0
+        except (ValueError, TypeError):
+            risk_val = 0.0
+        total_risk += risk_val
+
+        status = it.get('status') or it.get('Результат алгоритма') or it.get('cls') or ''
+        dec = it.get('decision') or it.get('Статус решения сметчика') or 'Не обработано'
+        if dec == 'yes':
+            dec = 'Принято сметчиком'
+        elif dec == 'no':
+            dec = 'В правку (отклонено)'
+        elif dec == 'auto':
+            dec = 'Автоматически'
+
+        note = it.get('note') or it.get('Причина решения и расхождения') or ''
+
+        # Разница объёма (с учётом пересчёта единиц если задан)
+        dv = None
+        if vv_val is not None and lv_val is not None:
+            mult = float(it.get('unit_multiplier') or 1.0)
+            norm_v = vv_val / mult if mult else vv_val
+            dv = round(lv_val - norm_v, 4)
+
+        row_fill = None
+        st_str = str(status).lower()
+        if status in ['Нет в смете', 'none'] or 'нет в' in st_str:
+            row_fill = fill_none
+        elif risk_val > 0 or (dv is not None and abs(dv) > 1e-4) or 'коллизия' in st_str or 'расхожд' in st_str or 'дифф' in st_str:
+            row_fill = fill_diff
+
+        ws.cell(row=current_row, column=1, value=n).alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(row=current_row, column=2, value=vor_name).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws.cell(row=current_row, column=3, value=lsr_name).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws.cell(row=current_row, column=4, value=code).alignment = Alignment(horizontal="center", vertical="center")
+
+        c_vv = ws.cell(row=current_row, column=5, value=vv_val)
+        c_vv.number_format = "#,##0.00"
+        c_vv.alignment = Alignment(horizontal="right", vertical="center")
+
+        c_lv = ws.cell(row=current_row, column=6, value=lv_val)
+        c_lv.number_format = "#,##0.00"
+        c_lv.alignment = Alignment(horizontal="right", vertical="center")
+
+        c_dv = ws.cell(row=current_row, column=7, value=dv if dv is not None else "")
+        c_dv.number_format = "+#,##0.00;-#,##0.00;0.00"
+        c_dv.alignment = Alignment(horizontal="right", vertical="center")
+        if dv is not None and abs(dv) > 1e-4:
+            c_dv.font = font_diff
+
+        ws.cell(row=current_row, column=8, value=u).alignment = Alignment(horizontal="center", vertical="center")
+
+        c_pr = ws.cell(row=current_row, column=9, value=pr_val if pr_val is not None else "")
+        if pr_val is not None:
+            c_pr.number_format = "#,##0.00 ₽"
+        c_pr.alignment = Alignment(horizontal="right", vertical="center")
+
+        c_rk = ws.cell(row=current_row, column=10, value=risk_val if risk_val > 0 else "")
+        if risk_val > 0:
+            c_rk.number_format = "#,##0.00 ₽"
+            c_rk.font = font_diff
+        c_rk.alignment = Alignment(horizontal="right", vertical="center")
+
+        ws.cell(row=current_row, column=11, value=status).alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(row=current_row, column=12, value=dec).alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(row=current_row, column=13, value=note).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+        for col_idx in range(1, 14):
+            c = ws.cell(row=current_row, column=col_idx)
+            c.border = border_cell
+            if not c.font or c.font.name != "Calibri":
+                c.font = font_td
+            if row_fill:
+                c.fill = row_fill
+
+        current_row += 1
+
+    # Итоговая строка
+    ws.row_dimensions[current_row].height = 24
+    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=9)
+    tot_label = ws.cell(row=current_row, column=1, value="ИТОГО совокупный финансовый риск расхождений:")
+    tot_label.font = font_total
+    tot_label.alignment = Alignment(horizontal="right", vertical="center")
+
+    tot_val = ws.cell(row=current_row, column=10, value=total_risk)
+    tot_val.font = font_diff
+    tot_val.number_format = "#,##0.00 ₽"
+    tot_val.alignment = Alignment(horizontal="right", vertical="center")
+
+    for c_i in range(1, 14):
+        ws.cell(row=current_row, column=c_i).border = border_total
+        ws.cell(row=current_row, column=c_i).fill = fill_total
+
+    # Блок подписей сторон
+    sig_row = current_row + 3
+    ws.cell(row=sig_row, column=2, value="От Заказчика:").font = font_meta_b
+    ws.cell(row=sig_row, column=6, value="От Подрядчика:").font = font_meta_b
+    ws.cell(row=sig_row, column=10, value="Сверку выполнил:").font = font_meta_b
+
+    ws.cell(row=sig_row + 1, column=2, value="Должность: ____________________").font = font_meta
+    ws.cell(row=sig_row + 1, column=6, value="Должность: ____________________").font = font_meta
+    ws.cell(row=sig_row + 1, column=10, value="Должность: Инженер-сметчик").font = font_meta
+
+    ws.cell(row=sig_row + 3, column=2, value="Подпись:   _______ / __________ /").font = font_meta
+    ws.cell(row=sig_row + 3, column=6, value="Подпись:   _______ / __________ /").font = font_meta
+    ws.cell(row=sig_row + 3, column=10, value=f"Подпись:   _______ / {user_name} /").font = font_meta
+
+    ws.cell(row=sig_row + 4, column=2, value="«___» ____________ 2026 г.").font = font_sub
+    ws.cell(row=sig_row + 4, column=6, value="«___» ____________ 2026 г.").font = font_sub
+    ws.cell(row=sig_row + 4, column=10, value="«___» ____________ 2026 г.").font = font_sub
+
+    col_widths = {
+        1: 6,    # №
+        2: 38,   # ВОР
+        3: 38,   # ЛСР
+        4: 24,   # Шифр
+        5: 14,   # Объём ВОР
+        6: 14,   # Объём ЛСР
+        7: 14,   # Разница
+        8: 10,   # Ед.
+        9: 20,   # Цена
+        10: 20,  # Риск
+        11: 22,  # Статус
+        12: 20,  # Решение
+        13: 35   # Примечание
+    }
+    for col_idx, width in col_widths.items():
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+@app.route('/api/export_discrepancy_act', methods=['GET', 'POST'])
+def api_export_discrepancy_act():
+    """Экспорт официального Акта разногласий (Дефектной ведомости) в Excel."""
+    global LAST_RESULTS
+    items = []
+    title = "Сверка сметной документации"
+    user_name = "Инженер-сметчик"
+
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        items = data.get('items', [])
+        title = data.get('title') or title
+        user_name = data.get('user_name') or user_name
+    
+    if not items and LAST_RESULTS:
+        items = LAST_RESULTS
+
+    if not items:
+        return jsonify({"error": "Нет данных для формирования Акта разногласий"}), 400
+
+    # Если пользователь авторизован, берем его имя из сессии
+    user_id = session.get('user_id')
+    if user_id:
+        db = SessionLocal()
+        try:
+            u = db.query(User).filter(User.id == user_id).first()
+            if u and u.full_name:
+                user_name = u.full_name
+        finally:
+            db.close()
+
+    excel_buf = generate_discrepancy_act_excel(items, title=title, user_name=user_name)
+    from urllib.parse import quote
+    filename = "Акт_разногласий_СверкаСмет.xlsx"
+
+    return Response(
+        excel_buf.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"act_discrepancies.xlsx\"; filename*=UTF-8''{quote(filename)}"
+        }
     )
 
 

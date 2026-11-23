@@ -180,6 +180,63 @@ class TestWebApiAuthAndProjects(unittest.TestCase):
         self.assertTrue("структур" in resp_data["error_title"].lower() or "заголов" in resp_data["error_title"].lower())
         self.assertTrue("в формате .xlsx" in resp_data["error_hint"].lower())
 
+    def test_export_discrepancy_act(self):
+        """Проверка генерации официального Акта разногласий в Excel."""
+        # 1. Запрос без данных -> 400
+        res_empty = self.client.get("/api/export_discrepancy_act")
+        self.assertEqual(res_empty.status_code, 400)
+
+        # 2. Запрос с позициями аудита
+        payload = {
+            "title": "Дворец молодёжи",
+            "user_name": "Иванов И.И.",
+            "items": [
+                {
+                    "n": 1,
+                    "vor": "Монтаж Контроллера",
+                    "lsr": "Устройства промежуточные",
+                    "code": "ГЭСНм10-08-001-11",
+                    "vv": 1.0,
+                    "lv": 1.0,
+                    "u": "шт",
+                    "pr": 6592.26,
+                    "risk": 0.0,
+                    "status": "Требует проверки",
+                    "decision": "yes",
+                    "note": "Сопоставлено по объему"
+                },
+                {
+                    "n": 2,
+                    "vor": "Кабель ВВГнг-LS 3х1.5",
+                    "lsr": "Кабель ВВГнг-LS 3х1.5",
+                    "code": "ФСБЦ-21.2.02.00-001",
+                    "vv": 100.0,
+                    "lv": 150.0,
+                    "u": "м",
+                    "pr": 45.5,
+                    "risk": 2275.0,
+                    "status": "Расхождение объёма",
+                    "decision": "no",
+                    "note": "Объём в смете превышает ВОР на 50 м"
+                }
+            ]
+        }
+        res = self.client.post("/api/export_discrepancy_act", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", res.content_type)
+        self.assertIn("act_discrepancies.xlsx", res.headers.get("Content-Disposition", ""))
+        self.assertGreater(len(res.data), 1000)
+
+        # Проверим, что это читаемый openpyxl файл
+        import openpyxl, io
+        wb = openpyxl.load_workbook(io.BytesIO(res.data))
+        self.assertIn("Акт разногласий", wb.sheetnames)
+        ws = wb["Акт разногласий"]
+        self.assertEqual(ws["A1"].value, "АКТ РАЗНОГЛАСИЙ И ВЕДОМОСТЬ РАСХОЖДЕНИЙ")
+        self.assertIn("Дворец молодёжи", ws["C4"].value)
+        # Проверяем строку с риском (строка 9)
+        self.assertEqual(ws["J9"].value, 2275.0)
+
 
 if __name__ == "__main__":
     unittest.main()
