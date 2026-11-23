@@ -245,19 +245,31 @@ def app_view():
     if not session.get('user_id'):
         return redirect('/login')
     html_path = WEB_DIR / "index.html"
-    return Response(html_path.read_text(encoding="utf-8"), mimetype="text/html")
+    resp = Response(html_path.read_text(encoding="utf-8"), mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.route('/style.css')
 def style():
     css_path = WEB_DIR / "style.css"
-    return Response(css_path.read_text(encoding="utf-8"), mimetype="text/css")
+    resp = Response(css_path.read_text(encoding="utf-8"), mimetype="text/css")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.route('/app.js')
 def script():
     js_path = WEB_DIR / "app.js"
-    return Response(js_path.read_text(encoding="utf-8"), mimetype="application/javascript")
+    resp = Response(js_path.read_text(encoding="utf-8"), mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], llm_active: bool = False):

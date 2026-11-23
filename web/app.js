@@ -933,10 +933,12 @@ function loadPreset(key, btnEl) {
 }
 
 function onFilesChanged() {
-  activePreset = null;
-  $$('.preset-pill').forEach(b => b.classList.remove('active'));
   const fv = $('#f-vor').files[0];
   const fl = $('#f-lsr').files[0];
+  if (fv || fl) {
+    activePreset = null;
+    $$('.preset-pill').forEach(b => b.classList.remove('active'));
+  }
   const infoEl = $('#selected-preset-info');
   if (infoEl) {
     if (fv && fl) {
