@@ -452,7 +452,7 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
             'Условие предупреждения': '; '.join(r.get('formulation_warning_conditions', [])),
             'Причина решения и расхождения': str(r.get('explanation') or ''),
             'Коллизия (неоднозначность)': str(r.get('conflict_reason') or ''),
-            'Решение ИИ-арбитра': str(r.get('ai_decision') or ('Не привлекался' if not llm_active else 'Авто')),
+            'Решение ИИ-арбитра': str(r.get('ai_decision') or 'Не привлекался'),
             'is_ambiguous': bool(r.get('is_ambiguous', False)),
             'ambiguity_type': str(r.get('ambiguity_type') or ''),
             'competing_candidates': r.get('competing_candidates', []),
@@ -1539,29 +1539,35 @@ def api_project_save():
 
             # Если позиция обрабатывалась ИИ-арбитром, фиксируем в LLM_LOGS
             if is_ai_item:
+                p_tok = int(item['prompt_tokens']) if item.get('prompt_tokens') is not None else None
+                c_tok = int(item['completion_tokens']) if item.get('completion_tokens') is not None else None
+                c_rub = float(item['cost_rub']) if item.get('cost_rub') is not None else None
                 db_sess.add(LLMLog(
                     project_id=project.id,
                     match_result_id=audit_item.id,
                     vor_name=item.get('vor', ''),
-                    decision=item.get('lsr', '') or item.get('detail_class', 'Арбитраж'),
+                    decision=str(item.get('lsr', '') or item.get('detail_class', 'Арбитраж'))[:500],
                     confidence=sim_val,
-                    prompt_tokens=int(item.get('prompt_tokens', 120)),
-                    completion_tokens=int(item.get('completion_tokens', 40)),
-                    cost_rub=float(item.get('cost_rub', 0.05))
+                    prompt_tokens=p_tok,
+                    completion_tokens=c_tok,
+                    cost_rub=c_rub
                 ))
 
         # Дополнительные логи ИИ из статистики, если переданы
         custom_llm_logs = data.get('llm_logs')
         if custom_llm_logs and isinstance(custom_llm_logs, list):
             for log_entry in custom_llm_logs:
+                p_tok = int(log_entry['prompt_tokens']) if log_entry.get('prompt_tokens') is not None else None
+                c_tok = int(log_entry['completion_tokens']) if log_entry.get('completion_tokens') is not None else None
+                c_rub = float(log_entry['cost_rub']) if log_entry.get('cost_rub') is not None else None
                 db_sess.add(LLMLog(
                     project_id=project.id,
                     vor_name=log_entry.get('vor_name', ''),
-                    decision=log_entry.get('decision', ''),
+                    decision=str(log_entry.get('decision', ''))[:500],
                     confidence=float(log_entry.get('confidence', 0.0)),
-                    prompt_tokens=int(log_entry.get('prompt_tokens', 0)),
-                    completion_tokens=int(log_entry.get('completion_tokens', 0)),
-                    cost_rub=float(log_entry.get('cost_rub', 0.0))
+                    prompt_tokens=p_tok,
+                    completion_tokens=c_tok,
+                    cost_rub=c_rub
                 ))
 
         db_sess.commit()

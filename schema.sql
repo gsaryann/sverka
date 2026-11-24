@@ -24,16 +24,8 @@ SET row_security = off;
 CREATE FUNCTION public.update_audit_project_aggregates() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
-            DECLARE
-                v_project_id bigint;
             BEGIN
-                IF TG_OP = 'DELETE' THEN
-                    v_project_id := OLD.project_id;
-                ELSE
-                    v_project_id := NEW.project_id;
-                END IF;
-
-                UPDATE audit_projects
+                UPDATE audit_projects p
                 SET
                     total_positions = sub.total_pos,
                     matched_count = sub.matched_cnt,
@@ -44,14 +36,15 @@ CREATE FUNCTION public.update_audit_project_aggregates() RETURNS trigger
                                       ELSE 0.00 END
                 FROM (
                     SELECT 
+                        project_id,
                         COUNT(*) AS total_pos,
                         COUNT(*) FILTER (WHERE upper_status = 'ok') AS matched_cnt,
-                        COUNT(*) FILTER (WHERE upper_status IN ('diff', 'part')) AS disc_cnt,
+                        COUNT(*) FILTER (WHERE upper_status IN ('diff', 'part', 'none')) AS disc_cnt,
                         COALESCE(SUM(financial_risk), 0.00) AS tot_risk
                     FROM match_results
-                    WHERE project_id = v_project_id
+                    GROUP BY project_id
                 ) sub
-                WHERE id = v_project_id;
+                WHERE p.id = sub.project_id;
 
                 RETURN NULL;
             END;
@@ -159,16 +152,16 @@ CREATE TABLE public.llm_logs (
     project_id bigint NOT NULL,
     match_result_id bigint,
     vor_name text,
-    decision character varying(100) NOT NULL,
+    decision text NOT NULL,
     confidence numeric(5,4) NOT NULL,
-    prompt_tokens integer NOT NULL,
-    completion_tokens integer NOT NULL,
-    cost_rub numeric(14,6) NOT NULL,
+    prompt_tokens integer,
+    completion_tokens integer,
+    cost_rub numeric(14,6),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT check_llm_completion_tokens CHECK ((completion_tokens >= 0)),
+    CONSTRAINT check_llm_completion_tokens CHECK ((completion_tokens IS NULL OR completion_tokens >= 0)),
     CONSTRAINT check_llm_confidence CHECK (((confidence >= (0)::numeric) AND (confidence <= 1.0))),
-    CONSTRAINT check_llm_cost_rub CHECK ((cost_rub >= (0)::numeric)),
-    CONSTRAINT check_llm_prompt_tokens CHECK ((prompt_tokens >= 0))
+    CONSTRAINT check_llm_cost_rub CHECK ((cost_rub IS NULL OR cost_rub >= (0)::numeric)),
+    CONSTRAINT check_llm_prompt_tokens CHECK ((prompt_tokens IS NULL OR prompt_tokens >= 0))
 );
 
 
@@ -443,7 +436,7 @@ CREATE UNIQUE INDEX ux_match_results_proj_row ON public.match_results USING btre
 -- Name: match_results trg_match_results_aggregates; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_match_results_aggregates AFTER INSERT OR DELETE OR UPDATE ON public.match_results FOR EACH ROW EXECUTE FUNCTION public.update_audit_project_aggregates();
+CREATE TRIGGER trg_match_results_aggregates AFTER INSERT OR DELETE OR UPDATE ON public.match_results FOR EACH STATEMENT EXECUTE FUNCTION public.update_audit_project_aggregates();
 
 
 --

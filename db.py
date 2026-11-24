@@ -299,15 +299,15 @@ class LLMLog(Base):
     # а также валидируется составным внешним ключом fk_llm_logs_match_result_project
     match_result_id = Column(BigInteger, ForeignKey("match_results.id", ondelete="SET NULL"), nullable=True, index=True)
     vor_name = Column(Text, nullable=True)
-    decision = Column(String(100), nullable=False)
+    decision = Column(Text, nullable=False)
     confidence = Column(
         Numeric(5, 4), default=0.0, nullable=False,
         comment="Уверенность LLM-модели в решении (шкала 0.0000..1.0000)"
     )
-    prompt_tokens = Column(Integer, default=0, nullable=False)
-    completion_tokens = Column(Integer, default=0, nullable=False)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
     cost_rub = Column(
-        Numeric(14, 6), default=0.0, nullable=False,
+        Numeric(14, 6), nullable=True,
         comment="Стоимость вызова в рублях с микрокопейками (до 6 знаков)"
     )
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
@@ -368,22 +368,14 @@ def init_db():
             END $$;
         """))
 
-        # Триггер автосинхронизации материализованных агрегатов в audit_projects
+        # Триггер автосинхронизации материализованных агрегатов в audit_projects (пакетный пересчет O(1))
         conn.execute(text("""
             CREATE OR REPLACE FUNCTION update_audit_project_aggregates()
             RETURNS trigger
             LANGUAGE plpgsql
             AS $func$
-            DECLARE
-                v_project_id bigint;
             BEGIN
-                IF TG_OP = 'DELETE' THEN
-                    v_project_id := OLD.project_id;
-                ELSE
-                    v_project_id := NEW.project_id;
-                END IF;
-
-                UPDATE audit_projects
+                UPDATE audit_projects p
                 SET
                     total_positions = sub.total_pos,
                     matched_count = sub.matched_cnt,
@@ -394,14 +386,15 @@ def init_db():
                                       ELSE 0.00 END
                 FROM (
                     SELECT 
+                        project_id,
                         COUNT(*) AS total_pos,
                         COUNT(*) FILTER (WHERE upper_status = 'ok') AS matched_cnt,
-                        COUNT(*) FILTER (WHERE upper_status IN ('diff', 'part')) AS disc_cnt,
+                        COUNT(*) FILTER (WHERE upper_status IN ('diff', 'part', 'none')) AS disc_cnt,
                         COALESCE(SUM(financial_risk), 0.00) AS tot_risk
                     FROM match_results
-                    WHERE project_id = v_project_id
+                    GROUP BY project_id
                 ) sub
-                WHERE id = v_project_id;
+                WHERE p.id = sub.project_id;
 
                 RETURN NULL;
             END;
@@ -410,7 +403,7 @@ def init_db():
             DROP TRIGGER IF EXISTS trg_match_results_aggregates ON match_results;
             CREATE TRIGGER trg_match_results_aggregates
             AFTER INSERT OR UPDATE OR DELETE ON match_results
-            FOR EACH ROW EXECUTE FUNCTION update_audit_project_aggregates();
+            FOR EACH STATEMENT EXECUTE FUNCTION update_audit_project_aggregates();
         """))
         conn.commit()
 

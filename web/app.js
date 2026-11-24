@@ -320,7 +320,7 @@ function renderFoot(v) {
 
 function renderInfo() {
   const e = $('#info');
-  if (S.q || !ROWS.length) {
+  if (!ROWS.length) {
     e.innerHTML = '';
     return;
   }
@@ -338,6 +338,11 @@ function renderInfo() {
     if (bUp) bUp.onclick = () => openM('#mUp');
     const bClr = $('#btn-demo-clear');
     if (bClr) bClr.onclick = () => clearTourDemo();
+    return;
+  }
+
+  if (S.q) {
+    e.innerHTML = '';
     return;
   }
 
@@ -546,6 +551,7 @@ $$('.ov').forEach(m => m.addEventListener('click', e => {
 
 // ==================== ЭКСПОРТ CSV ====================
 $('#bCsv').onclick = () => {
+  if (tourDemoLoaded) return toast('Экспорт демонстрационных данных обучения запрещен');
   if (!ROWS.length) return toast('Нет данных для экспорта в CSV');
   const h = ['№', 'ВОР', 'ЛСР', 'Шифр', 'Объём ВОР', 'Объём ЛСР', 'Ед.', 'Статус', 'Сходство %', 'Риск ₽', 'Решение'];
   const rows = ROWS.map(r => [
@@ -577,6 +583,7 @@ $('#bCsv').onclick = () => {
 
 // ==================== ОФИЦИАЛЬНЫЙ АКТ РАЗНОГЛАСИЙ (EXCEL) ====================
 async function exportDiscrepancyAct() {
+  if (tourDemoLoaded) return toast('Экспорт демонстрационных данных обучения запрещен');
   if (!ROWS.length) return toast('Нет данных для формирования Акта разногласий');
   toast('Генерация Акта разногласий в Excel...');
   try {
@@ -671,6 +678,7 @@ addEventListener('keydown', e => {
 
 // ==================== СОХРАНЕНИЕ В БАЗУ POSTGRESQL ====================
 async function saveCurrentProjectToDB() {
+  if (tourDemoLoaded) return toast('Сохранение демонстрационных данных обучения запрещено');
   if (!ROWS.length) return toast('Нет данных для сохранения');
   const bSave = $('#bSave');
   bSave.disabled = true;
@@ -1181,13 +1189,13 @@ const DEMO_TOUR_ROWS = [
     vv: 12.0,
     lv: null,
     u: 'шт',
-    pr: 1850.0,
-    risk: 22200,
+    pr: 0.0,
+    risk: 0,
     s: 'none',
     cls: 'Нет в смете',
     sim: 0,
     ai: false,
-    note: 'Позиция ВОР отсутствует в локальной смете Подрядчика. Требуется включение в доп. смету.'
+    note: 'Позиция ВОР отсутствует в локальной смете Подрядчика (расценка не найдена, финансовый риск не может быть оценен).'
   }
 ];
 
