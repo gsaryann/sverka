@@ -319,12 +319,12 @@ def _read_sheet(ws, doc: str):
                 if "всего по позиции" in name_check:
                     raw_tp = cell(cols.get("total_price"))
                     tp = _f(raw_tp)
-                    if tp is not None and tp > 0:
+                    if tp is not None and abs(tp) > 0:
                         last_item = items[-1]
                         if last_item.total_price is None:
                             last_item.total_price = round(tp, 2)
-                        if last_item.unit_price is None and last_item.qty and last_item.qty > 0:
-                            last_item.unit_price = round(tp / last_item.qty, 2)
+                        if last_item.unit_price is None and last_item.qty and abs(last_item.qty) > 0:
+                            last_item.unit_price = round(abs(tp / last_item.qty), 2)
             continue
 
         raw_ref = cell(cols["ref"]) if cols["ref"] is not None else ""
@@ -371,14 +371,14 @@ def _read_sheet(ws, doc: str):
             tp = _f(raw_tp)
             bp = _f(raw_bp)
 
-            if up is not None and up > 0:
-                unit_price = round(up, 2)
-            elif tp is not None and tp > 0 and qty is not None and qty > 0:
-                unit_price = round(tp / qty, 2)
+            if up is not None and abs(up) > 0:
+                unit_price = round(abs(up), 2)
+            elif tp is not None and abs(tp) > 0 and qty is not None and abs(qty) > 0:
+                unit_price = round(abs(tp / qty), 2)
 
-            if tp is not None and tp > 0:
+            if tp is not None:
                 total_price = round(tp, 2)
-            if bp is not None and bp > 0:
+            if bp is not None:
                 base_price = round(bp, 2)
 
         item = Item(
@@ -441,4 +441,14 @@ def parse_vor(path: str) -> List[Item]:
 def parse_lsr(path: str) -> List[Item]:
     """Читает позиции ЛСР из Excel с автоматическим определением структуры."""
     _PARSE_WARNINGS.clear()
-    return _read(path, "LSR")
+    items = _read(path, "LSR")
+    for item in items:
+        if item.unit_price is None:
+            _PARSE_WARNINGS.append(dict(
+                doc="LSR",
+                sheet=item.sheet,
+                row=item.row,
+                text=item.name,
+                reason="цена не найдена"
+            ))
+    return items

@@ -195,7 +195,7 @@ function renderTable() {
       <td class="mono" style="white-space:nowrap">${volCell(r)} <span class="mut">${esc(r.u || '')}</span></td>
       <td><span class="pl s-${r.st}">${LAB(r)}</span></td>
       <td class="mono mut">${r.sim}%</td>
-      <td class="mono">${r.risk > 0 ? `<b style="color:var(--diff)">${fm(r.risk)} ₽</b>` : '<span class="mut">—</span>'}</td>
+      <td class="mono">${r.risk > 0 ? `<b style="color:var(--diff)">${fm(r.risk)} ₽</b>` : (r.risk_status === 'нельзя оценить' ? '<span class="mut" title="Несовместимые единицы измерения">нельзя оценить</span>' : '<span class="mut">—</span>')}</td>
       <td style="text-align:center;white-space:nowrap">${decCell(r)}</td>
     </tr>
   `).join('') : emptyHtml;
@@ -244,12 +244,17 @@ function renderInsp(v) {
       <b style="font-size:18px;color:var(--diff)">${fm(r.risk)} ₽</b>
       ${r.pr ? `<div class="mut" style="font-size:11.5px;margin-top:3px;">расценка ${fm(r.pr)} ₽ за ${esc(r.u)}: проект ${fm(r.vv * r.pr)} ₽ · смета ${fm(r.lv * r.pr)} ₽</div>` : ''}
     </div>
+  ` : (r.risk_status === 'нельзя оценить' ? `
+    <div class="box">
+      <h4>Финансовый риск</h4>
+      <span class="mut">нельзя оценить (несовпадение размерностей единиц измерения)</span>
+    </div>
   ` : `
     <div class="box">
       <h4>Влияние на стоимость</h4>
-      ${r.pr ? '0 ₽ — объёмы совпадают' : 'не рассчитано: в ЛСР нет единичной цены'}
+      ${r.pr ? '0 ₽ — объёмы совпадают' : (r.risk_status === 'цена не найдена' ? 'не рассчитано: в ЛСР не найдена сметная расценка' : 'не рассчитано: в ЛСР нет единичной цены')}
     </div>
-  `;
+  `);
 
   el.innerHTML = `
     <div class="ih">
@@ -896,10 +901,11 @@ async function runCompare() {
       const lv = (r['ЛСР: количество'] != null && r['ЛСР: количество'] !== '') ? parseFloat(r['ЛСР: количество']) : null;
       const pr = (r['unit_price'] != null && r['unit_price'] !== '') ? parseFloat(r['unit_price']) : null;
       let risk = 0;
+      const riskStatus = r['risk_status'] || '';
       if (r['financial_risk'] != null && r['financial_risk'] !== '') {
         risk = Math.round(parseFloat(r['financial_risk']));
-      } else if (vv != null && lv != null && vv !== lv && pr != null && pr > 0) {
-        risk = Math.round(Math.abs(lv - vv) * pr);
+      } else if (r['financial_risk'] === null && riskStatus === 'нельзя оценить') {
+        risk = null;
       }
 
       const item = {
@@ -911,9 +917,10 @@ async function runCompare() {
         code: r['ЛСР шифр'] || '',
         vv: vv,
         lv: lv,
-        u: r['ВОР: единица'] || r['ЛСР: единица'] || 'шт',
+        u: r['ЛСР: единица'] || r['ВОР: единица'] || 'шт',
         pr: pr,
         risk: risk,
+        risk_status: riskStatus,
         s: s,
         cls: cls,
         sim: Math.round(parseFloat(r['Текстовое сходство'] || 0) * 100),

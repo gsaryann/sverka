@@ -38,6 +38,7 @@ from db import (
 logger = logging.getLogger(__name__)
 
 from parsers import parse_vor, parse_lsr, get_parse_warnings, Item
+from risk import calculate_item_risk
 
 
 def _document_kind(path: Path) -> str | None:
@@ -292,15 +293,14 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
         unit_price = getattr(l, 'unit_price', None) if l else None
         total_price = getattr(l, 'total_price', None) if l else None
 
-        # Расчёт финансового риска по реальной расценке ЛСР:
-        # Риск = |объём ЛСР - объём ВОР| * цена за единицу
-        risk_rub = 0.0
-        if v and l and v.qty is not None and l.qty is not None:
-            mult = float(r.get('unit_multiplier') or 1.0)
-            norm_v = float(v.qty) / mult if mult else float(v.qty)
-            if abs(float(l.qty) - norm_v) > 1e-4:
-                if unit_price is not None and unit_price > 0:
-                    risk_rub = round(abs(float(l.qty) - norm_v) * float(unit_price), 2)
+        # Расчёт финансового риска по реальной расценке ЛСР через единый модуль risk:
+        delta_v, risk_rub, risk_status = calculate_item_risk(
+            v.qty if v else None,
+            v.unit if v else '',
+            l.qty if l else None,
+            l.unit if l else '',
+            unit_price
+        )
 
         rows.append({
             'ВОР №': str(v.num) if v else '',
@@ -319,6 +319,8 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
             'unit_price': unit_price,
             'total_price': total_price,
             'financial_risk': risk_rub,
+            'delta_v': delta_v,
+            'risk_status': risk_status,
             'Текстовое сходство': round(float(r.get('text_sim', 0.0)), 4),
             'Уверенность': round(float(r.get('score', 0.0)), 4),
             'Результат алгоритма': status,
@@ -913,7 +915,10 @@ def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "С
         except (ValueError, TypeError):
             lv_val = None
 
-        u = it.get('u') or it.get('ВОР: единица') or it.get('ЛСР: единица') or ''
+        vor_u = it.get('ВОР: единица') or it.get('vor_u') or it.get('u') or ''
+        lsr_u = it.get('ЛСР: единица') or it.get('lsr_u') or it.get('u') or ''
+        # Колонка «Цена» подписывается единицей цены (единица ЛСР):
+        u = lsr_u or vor_u or ''
 
         pr = it.get('pr') if it.get('pr') is not None else it.get('unit_price')
         try:
@@ -921,11 +926,15 @@ def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "С
         except (ValueError, TypeError):
             pr_val = None
 
-        risk = it.get('risk') if it.get('risk') is not None else it.get('financial_risk')
-        try:
-            risk_val = float(risk) if risk is not None and risk != '' else 0.0
-        except (ValueError, TypeError):
-            risk_val = 0.0
+        calc_dv, calc_risk, _ = calculate_item_risk(vv_val, vor_u, lv_val, lsr_u, pr_val)
+        dv = calc_dv
+        if calc_risk is not None:
+            risk_val = calc_risk
+        else:
+            try:
+                risk_val = float(it.get('risk') or it.get('financial_risk') or 0.0)
+            except (ValueError, TypeError):
+                risk_val = 0.0
         total_risk += risk_val
 
         status = it.get('status') or it.get('Результат алгоритма') or it.get('cls') or ''
@@ -938,13 +947,6 @@ def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "С
             dec = 'Автоматически'
 
         note = it.get('note') or it.get('Причина решения и расхождения') or ''
-
-        # Разница объёма (с учётом пересчёта единиц если задан)
-        dv = None
-        if vv_val is not None and lv_val is not None:
-            mult = float(it.get('unit_multiplier') or 1.0)
-            norm_v = vv_val / mult if mult else vv_val
-            dv = round(lv_val - norm_v, 4)
 
         row_fill = None
         st_str = str(status).lower()
