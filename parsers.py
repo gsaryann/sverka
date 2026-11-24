@@ -110,12 +110,14 @@ def _f(value) -> Optional[float]:
 
 
 def _clean_num(value) -> str:
-    """Извлекает строковый номер позиции: '1', '1.1', '2 О' -> '1', '1.1', '2'."""
+    """Извлекает строковый номер позиции: '1', '1.1', '2 О', 'п.5', '№7', '1,5'."""
     if value is None:
         return ""
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
-    s = _s(value)
+    s = _s(value).strip()
+    s = re.sub(r'^(?:п\.?|№|поз\.?)\s*', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'(\d+),(\d+)', r'\1.\2', s)
     # Если номер вида "2\nО" или "2 О" (оборудование)
     m = re.match(r"^(\d+(?:[\.\-]\d+)*)", s)
     if m:
@@ -287,6 +289,7 @@ def _read_sheet(ws, doc: str):
         return None
     header_row, cols = found
     items = []
+    seen_nums = set()
     current_section = ""
 
     for row_idx, row in enumerate(
@@ -311,6 +314,7 @@ def _read_sheet(ws, doc: str):
 
         raw_num = cell(cols["num"])
         num = _clean_num(raw_num)
+        raw_num_str = _s(raw_num).strip()
         # В ЛСР номер позиции — целое число. Строки ресурсов («Н», «П,Н», «1.1») — это не
         # самостоятельные позиции, их пропускаем. В ВОР допускаем номера вида «1.1».
         if not num or not re.fullmatch(r"\d+" if doc != "VOR" else r"\d+(?:\.\d+)*", num):
@@ -325,6 +329,12 @@ def _read_sheet(ws, doc: str):
                             last_item.total_price = round(tp, 2)
                         if last_item.unit_price is None and last_item.qty and abs(last_item.qty) > 0:
                             last_item.unit_price = round(abs(tp / last_item.qty), 2)
+            if raw_num_str and not any(kw in raw_num_str.lower() for kw in ("раздел", "итог", "всего", "номер", "№", "п/п")):
+                _PARSE_WARNINGS.append(dict(
+                    doc=doc, sheet=ws.title, row=row_idx,
+                    text=_s(cell(cols.get("name"))),
+                    reason=f"Пропущена строка с нестандартным номером '{raw_num_str}'"
+                ))
             continue
 
         raw_ref = cell(cols["ref"]) if cols["ref"] is not None else ""
@@ -357,6 +367,13 @@ def _read_sheet(ws, doc: str):
 
         if unit == "%" or name_lower in {"наименование работ и затрат", "наименование", "наименование работ"}:
             continue
+
+        if num in seen_nums:
+            _PARSE_WARNINGS.append(dict(
+                doc=doc, sheet=ws.title, row=row_idx, text=name,
+                reason=f"Повторный номер позиции: '{num}'"
+            ))
+        seen_nums.add(num)
 
         unit_price = None
         total_price = None

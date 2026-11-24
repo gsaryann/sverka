@@ -71,11 +71,11 @@ def make_set_from_pairs(base_pairs: List[Tuple[Item, Item]], seed: int = 1,
             replaced = False
             for a, b in SYNONYMS:
                 if a in it.name:
-                    it = replace(it, name=it.name.replace(a, b, 1))
+                    it = replace(it, name=it.name.replace(a, b, 1), name_norm="", characteristics={})
                     replaced = True
                     break
             if not replaced:
-                it = replace(it, name=it.name.lower())
+                it = replace(it, name=it.name.lower(), name_norm="", characteristics={})
         elif r < 0.46 and it.unit in UNIT_SCALES:
             # Масштабирование единицы измерения (например м2 <-> 100 м2)
             u_new, k = UNIT_SCALES[it.unit]
@@ -94,7 +94,7 @@ def make_set_from_pairs(base_pairs: List[Tuple[Item, Item]], seed: int = 1,
                 n = rnd.choice(nums_in_name)
                 val = float(n.replace(',', '.'))
                 new_val = str(int(val + 5)) if val.is_integer() else f"{val + 1.5:.1f}"
-                it = replace(it, name=it.name.replace(n, new_val, 1))
+                it = replace(it, name=it.name.replace(n, new_val, 1), name_norm="", characteristics={})
                 cls = 'Расхождение характеристик'
         elif r < 0.74 and it.unit in INCOMPATIBLE_UNITS:
             # Несовместимая единица измерения

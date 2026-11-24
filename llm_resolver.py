@@ -13,6 +13,9 @@ import re
 import json
 import logging
 import time
+import math
+import copy
+import tempfile
 import hashlib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -241,33 +244,54 @@ def build_prompt(v: Item, cands: List[Item], cur_cand: Optional[Item] = None,
 
 def parse_answer(text: str, k: int):
     """Извлекает выбранный номер, уверенность, причину и действие."""
-    m = re.search(r"\{.*\}", text or "", re.S)
-    if not m:
+    if not text:
         return None
-    try:
-        obj = json.loads(m.group(0))
-    except Exception:
-        return None
+
+    # Извлечение JSON объекта с помощью JSONDecoder().raw_decode
+    obj = None
+    for m in re.finditer(r'\{', text):
+        try:
+            cand_obj, _ = json.JSONDecoder().raw_decode(text[m.start():])
+            if isinstance(cand_obj, dict) and any(key in cand_obj for key in ("action", "candidate", "confidence")):
+                obj = cand_obj
+                break
+        except Exception:
+            continue
 
     if not isinstance(obj, dict):
         return None
 
     VALID_ACTIONS = {"CONFIRM", "REASSIGN", "REJECT"}
     raw_action = str(obj.get("action", "")).upper().strip()
+
+    # candidate: строго целое число (не float, не bool)
     cand = obj.get("candidate")
     if cand is not None:
-        try:
-            cand = int(cand)
-        except (TypeError, ValueError):
-            cand = None
-        if cand is not None and not (1 <= cand <= k):
+        if isinstance(cand, bool) or not isinstance(cand, int):
+            return None
+        if not (1 <= cand <= k):
             return None
 
+    # confidence: строго число (не NaN, не bool), нормализация процентов
+    conf_raw = obj.get("confidence")
+    if conf_raw is None or isinstance(conf_raw, bool):
+        return None
     try:
-        conf = float(obj.get("confidence", 0.0))
+        conf = float(conf_raw)
     except (TypeError, ValueError):
-        conf = 0.0
-    conf = max(0.0, min(1.0, conf))
+        return None
+
+    if math.isnan(conf) or math.isinf(conf):
+        return None
+    if conf > 1.0:
+        if conf <= 100.0:
+            conf = conf / 100.0
+        else:
+            return None
+    if not (0.0 <= conf <= 1.0):
+        return None
+
+    conf = round(conf, 4)
     reason = str(obj.get("reason", ""))[:300]
 
     if raw_action in VALID_ACTIONS:
@@ -293,11 +317,12 @@ def parse_answer(text: str, k: int):
     return cand, conf, reason, action
 
 
+_CACHE_LOCK = threading.Lock()
+
 class Cache:
-    """Кэширует ответы Алисы в файл, чтобы не тратить запросы повторно."""
+    """Кэширует ответы Алисы в файл, чтобы не тратить запросы повторно (потокобезопасно и атомарно)."""
     def __init__(self, path="results/llm_cache.json"):
         self.path = Path(path)
-        self.lock = threading.Lock()
         self.data: Dict[str, str] = {}
         if self.path.exists():
             try:
@@ -306,14 +331,25 @@ class Cache:
                 self.data = {}
 
     def get(self, key):
-        with self.lock:
+        with _CACHE_LOCK:
             return self.data.get(key)
 
     def put(self, key, value):
-        with self.lock:
-            self.data[key] = value
+        with _CACHE_LOCK:
+            current_data = {}
+            if self.path.exists():
+                try:
+                    current_data = json.loads(self.path.read_text(encoding="utf-8"))
+                except Exception:
+                    current_data = copy.deepcopy(self.data)
+            current_data[key] = value
+            self.data = current_data
+
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp_fd, tmp_path = tempfile.mkstemp(dir=str(self.path.parent), prefix="cache_", suffix=".tmp")
+            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, str(self.path))
 
 
 def model_only_results(vor: List[Item], lsr: List[Item]) -> List[Dict[str, Any]]:
@@ -510,7 +546,8 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
                 elif ans:
                     stats["calls"] += 1
                     responses[ck] = ans
-                    cache.put(ck, ans)
+                    if parse_answer(ans, len(t["cands"])) is not None:
+                        cache.put(ck, ans)
                 if progress_callback:
                     try:
                         progress_callback(done_count, total_tasks, {

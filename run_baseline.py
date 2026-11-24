@@ -123,7 +123,7 @@ def main():
         run_benchmark(sets, shuffle_order=args.shuffle, use_legacy=True, verbose_conf=False)
         run_benchmark(sets, shuffle_order=args.shuffle, use_legacy=False, verbose_conf=True)
         if args.llm:
-            run_benchmark(sets, shuffle_order=args.shuffle, use_legacy=True, verbose_conf=False, llm='hybrid')
+            run_benchmark(sets, shuffle_order=args.shuffle, use_legacy=False, verbose_conf=False, llm='hybrid')
         if args.model_only:
             run_benchmark(sets, shuffle_order=args.shuffle, verbose_conf=False, llm='only')
     else:

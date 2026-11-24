@@ -94,9 +94,10 @@ def main():
     if not is_compat:
         print(f"\n[ПРЕДОХРАНИТЕЛЬ СОВМЕСТИМОСТИ ДОКУМЕНТОВ]:")
         print(f"  {compat_msg}")
-        if use_llm:
+        if use_llm or use_llm_only:
             print("  ВЫЗОВ ИИ ЗАБЛОКИРОВАН: предотвращен нецелевой расход бюджета токенов на несогласованные документы.")
             use_llm = False
+            use_llm_only = False
 
     if use_llm_only:
         from llm_resolver import model_only_results
