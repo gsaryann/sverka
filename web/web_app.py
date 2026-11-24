@@ -34,11 +34,23 @@ import time
 import math
 from functools import wraps
 from flask import Flask, request, jsonify, Response, stream_with_context, session, redirect
-from sqlalchemy import desc, text
-from db import (
-    SessionLocal, User, Project, AuditProject,
-    AuditItem, MatchResult, Document, LLMLog, init_db, is_production, IS_PROD
-)
+def is_production() -> bool:
+    env = os.getenv("ENV", "").strip().lower()
+    flask_env = os.getenv("FLASK_ENV", "").strip().lower()
+    return env == "production" or flask_env == "production"
+
+try:
+    from sqlalchemy import desc, text
+    from db import (
+        SessionLocal, User, Project, AuditProject,
+        AuditItem, MatchResult, Document, LLMLog, init_db
+    )
+except ImportError:
+    desc = text = None
+    SessionLocal = User = Project = AuditProject = None
+    AuditItem = MatchResult = Document = LLMLog = init_db = None
+
+IS_PROD = is_production()
 
 logger = logging.getLogger(__name__)
 

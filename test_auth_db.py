@@ -21,7 +21,14 @@ from db import (
 class TestAuthAndSecurity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        init_db()
+        try:
+            from sqlalchemy import text
+            sess = SessionLocal()
+            sess.execute(text("SELECT 1"))
+            sess.close()
+            init_db()
+        except Exception as e:
+            raise unittest.SkipTest(f"PostgreSQL недоступен: {e}")
 
     def setUp(self):
         self.session = SessionLocal()
@@ -123,6 +130,7 @@ class TestAuthAndSecurity(unittest.TestCase):
 
     def test_user_delete_restricted(self):
         """Удаление пользователя с проектами блокируется правилом ON DELETE RESTRICT."""
+        from sqlalchemy import text
         user = User(email="test_restrict@sverkasmet.ru", full_name="User Restrict", role="estimator")
         user.set_password("Pass123!")
         self.session.add(user)
@@ -132,14 +140,15 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session.add(proj)
         self.session.commit()
 
-        # Попытка удалить пользователя должна вызвать ошибку внешнего ключа (RESTRICT)
-        self.session.delete(user)
+        # Прямой SQL запрос на удаление для проверки реального ограничения RESTRICT в БД
         with self.assertRaises(IntegrityError):
+            self.session.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user.id})
             self.session.commit()
         self.session.rollback()
 
     def test_match_result_delete_sets_null_in_llm_logs(self):
         """Удаление позиции сметы сохраняет лог LLM и расходы (ON DELETE SET NULL)."""
+        from sqlalchemy import text
         user = User(email="test_llm_log@sverkasmet.ru", full_name="User LLM", role="estimator")
         user.set_password("Pass123!")
         self.session.add(user)
@@ -176,8 +185,8 @@ class TestAuthAndSecurity(unittest.TestCase):
         log_id = log.id
         self.assertEqual(float(log.cost_rub), 0.003512)
 
-        # Удаляем позицию сметы: лог должен сохраниться, а match_result_id стать NULL
-        self.session.delete(item)
+        # Удаляем позицию сметы через SQL: лог должен сохраниться, а match_result_id стать NULL
+        self.session.execute(text("DELETE FROM match_results WHERE id = :mid"), {"mid": item.id})
         self.session.commit()
 
         db_log = self.session.query(LLMLog).filter_by(id=log_id).first()
@@ -185,6 +194,42 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.assertIsNone(db_log.match_result_id)
         self.assertEqual(db_log.project_id, proj.id)
         self.assertEqual(float(db_log.cost_rub), 0.003512)
+
+    def test_composite_foreign_key_llm_log_rejected(self):
+        """5.2: Защита от привязки лога LLM к позиции из чужого проекта (составной FK)."""
+        from sqlalchemy import text
+        user = User(email="test_fk@sverkasmet.ru", full_name="User FK", role="estimator")
+        user.set_password("Pass123!")
+        self.session.add(user)
+        self.session.commit()
+
+        proj1 = AuditProject(user_id=user.id, title="Проект 1", status="completed")
+        proj2 = AuditProject(user_id=user.id, title="Проект 2", status="completed")
+        self.session.add_all([proj1, proj2])
+        self.session.commit()
+
+        item1 = MatchResult(
+            project_id=proj1.id,
+            row_num=1,
+            vor_name="Позиция 1",
+            upper_status="ok",
+            financial_risk=Decimal("0.00")
+        )
+        self.session.add(item1)
+        self.session.commit()
+
+        # Попытка создать лог в proj2, но сослаться на item1 из proj1
+        bad_log = LLMLog(
+            project_id=proj2.id,
+            match_result_id=item1.id,
+            vor_name="Несогласованный лог",
+            decision="Решение",
+            confidence=Decimal("0.9000")
+        )
+        self.session.add(bad_log)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+        self.session.rollback()
 
     def test_audit_project_trigger_automatic_aggregates(self):
         """Триггер БД автоматически обновляет материализованные агрегаты при любых изменениях строк сметы."""

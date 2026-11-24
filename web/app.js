@@ -997,6 +997,7 @@ function loadPreset(key, btnEl) {
   else if (key === 'crystal') currentProjectTitle = 'Комплект 2 · СФР «Кристалл» (137 поз.)';
   else if (key === 'kaluga') currentProjectTitle = 'Комплект 3 · Ремонт кабинетов (534 поз.)';
   else if (key === 'set2') currentProjectTitle = 'Комплект 4 · Помещение 163 (83 поз.)';
+  else if (key === 'tea') currentProjectTitle = 'Комплект 5 · Чайная Анастасьевка (371 поз.)';
 
   const infoEl = $('#selected-preset-info');
   if (infoEl) {
@@ -1043,7 +1044,11 @@ async function runBenchmark() {
 
   load.style.display = 'inline';
   try {
-    const res = await fetch(`/api/benchmark?noise=${noise}`);
+    const res = await fetch('/api/benchmark', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preset: activePreset || 'set1', stress: true })
+    });
     const data = await res.json();
     load.style.display = 'none';
     if (!res.ok || data.error) return toast('Ошибка: ' + (data.error || ''));
@@ -1052,10 +1057,10 @@ async function runBenchmark() {
     tbody.innerHTML = (data.methods || []).map(m => `
       <tr>
         <td><b>${esc(m.name)}</b></td>
-        <td>${(m.precision * 100).toFixed(1)}%</td>
-        <td>${(m.recall * 100).toFixed(1)}%</td>
-        <td><b style="color:var(--ok);">${m.f1.toFixed(3)}</b></td>
-        <td>${(m.qty_accuracy * 100).toFixed(1)}%</td>
+        <td>${(((m.prec ?? m.precision ?? 0)) * 100).toFixed(1)}%</td>
+        <td>${(((m.rec ?? m.recall ?? 0)) * 100).toFixed(1)}%</td>
+        <td><b style="color:var(--ok);">${(m.f1 ?? 0).toFixed(3)}</b></td>
+        <td>${(((m.cls_acc ?? m.qty_accuracy ?? 0)) * 100).toFixed(1)}%</td>
       </tr>
     `).join('');
   } catch (e) {

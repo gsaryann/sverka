@@ -1219,10 +1219,11 @@
 
     // Проверка статуса авторизации для кнопки в шапке
     fetch('/api/auth/me').then(r => r.json()).then(d => {
-      if (d.logged_in && d.user) {
+      if (d.user) {
         const btn = document.getElementById("nav-auth-btn");
         if (btn) {
-          btn.textContent = `Терминал (${d.user.username}) →`;
+          const name = d.user.full_name || d.user.email || "Пользователь";
+          btn.textContent = `Терминал (${name}) →`;
           btn.href = "/app";
         }
       }

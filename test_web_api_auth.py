@@ -18,7 +18,14 @@ from db import init_db, SessionLocal, User, Project, AuditItem
 class TestWebApiAuthAndProjects(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        init_db()
+        try:
+            from sqlalchemy import text
+            sess = SessionLocal()
+            sess.execute(text("SELECT 1"))
+            sess.close()
+            init_db()
+        except Exception as e:
+            raise unittest.SkipTest(f"PostgreSQL недоступен: {e}")
         app.config["TESTING"] = True
         app.config["SECRET_KEY"] = "test-secret-key-12345"
 

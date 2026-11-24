@@ -546,7 +546,7 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
                 elif ans:
                     stats["calls"] += 1
                     responses[ck] = ans
-                    if parse_answer(ans, len(t["cands"])) is not None:
+                    if parse_answer(ans, len(t["cand_idx"])) is not None:
                         cache.put(ck, ans)
                 if progress_callback:
                     try:
