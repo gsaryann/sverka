@@ -24,14 +24,19 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_
 load_dotenv(Path(__file__).parent / ".env")
 
 # Режим окружения: development / production
-IS_PROD = os.getenv("ENV", "development").lower() == "production"
+def is_production() -> bool:
+    env = os.getenv("ENV", "").strip().lower()
+    flask_env = os.getenv("FLASK_ENV", "").strip().lower()
+    return env == "production" or flask_env == "production"
+
+IS_PROD = is_production()
 
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASS = os.getenv("DB_PASS")
 if not DB_PASS:
     if IS_PROD:
         raise RuntimeError("CRITICAL SECURITY ERROR: Переменная DB_PASS обязательна в production-окружении!")
-    DB_PASS = "P@ssw0rd"
+    DB_PASS = os.getenv("DB_PASS", "")
 
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
@@ -409,29 +414,34 @@ def init_db():
         """))
         conn.commit()
 
-    # Создание демо-аккаунта разрешено ТОЛЬКО для локальной демонстрации/разработки,
-    # если включен SEED_DEMO_USER=1, и строго заблокировано в production-окружении
-    seed_demo = os.getenv("SEED_DEMO_USER", "1").lower() in ("1", "true", "yes")
-    if seed_demo and not IS_PROD:
-        session = SessionLocal()
-        try:
+    # Создание демо-аккаунта разрешено ТОЛЬКО при явном указании SEED_DEMO_USER=1 в development,
+    # и строго запрещено в production-окружении (при обнаружении удаляется)
+    session = SessionLocal()
+    try:
+        if IS_PROD:
             demo_user = session.query(User).filter(text("lower(email) = 'demo@sverkasmet.ru'")).first()
-            if not demo_user:
-                demo_pass = os.getenv("DEMO_USER_PASSWORD", DB_PASS)
-                demo_user = User(
-                    email="demo@sverkasmet.ru",
-                    full_name="Саргсян Гагик (Ведущий сметчик)",
-                    role="lead",
-                    company="ООО «СтройЭкспертиза»"
-                )
-                demo_user.set_password(demo_pass)
-                session.add(demo_user)
+            if demo_user:
+                session.delete(demo_user)
                 session.commit()
-                print("Локальный демо-пользователь инициализирован: demo@sverkasmet.ru")
-        finally:
-            session.close()
-    else:
-        print("Безопасный/Production режим: автоматическое создание демо-пользователя отключено.")
+                print("Production режим: ранее созданный демо-пользователь удалён в целях безопасности.")
+        else:
+            seed_demo = os.getenv("SEED_DEMO_USER", "0").lower() in ("1", "true", "yes")
+            if seed_demo:
+                demo_user = session.query(User).filter(text("lower(email) = 'demo@sverkasmet.ru'")).first()
+                if not demo_user:
+                    demo_pass = os.getenv("DEMO_USER_PASSWORD", "DemoSecurePass2026!")
+                    demo_user = User(
+                        email="demo@sverkasmet.ru",
+                        full_name="Саргсян Гагик (Демо сметчик)",
+                        role="estimator",
+                        company="ООО «СтройЭкспертиза»"
+                    )
+                    demo_user.set_password(demo_pass)
+                    session.add(demo_user)
+                    session.commit()
+                    print("Локальный демо-пользователь инициализирован (роль: estimator): demo@sverkasmet.ru")
+    finally:
+        session.close()
 
 
 if __name__ == "__main__":

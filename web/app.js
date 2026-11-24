@@ -561,8 +561,15 @@ $('#bCsv').onclick = () => {
     r.risk || 0,
     todo(r) ? (S.dec[r.n] === 'yes' ? 'Принято' : S.dec[r.n] === 'no' ? 'В правку' : 'Ждёт') : 'Авто'
   ]);
+  const sanitizeCsvCell = (val) => {
+    let s = String(val ?? '');
+    if (/^[=+\-@]/.test(s)) {
+      s = "'" + s;
+    }
+    return '"' + s.replace(/"/g, '""') + '"';
+  };
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['\ufeff' + [h, ...rows].map(x => x.map(y => '"' + String(y).replace(/"/g, '""') + '"').join(';')).join('\r\n')], { type: 'text/csv' }));
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + [h, ...rows].map(x => x.map(y => sanitizeCsvCell(y)).join(';')).join('\r\n')], { type: 'text/csv' }));
   a.download = 'sverka_results.csv';
   a.click();
   toast('CSV файл выгружен');

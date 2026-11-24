@@ -20,7 +20,7 @@ import threading
 import queue
 import webbrowser
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple, Optional
 
 # Автоматическое подключение корневой папки проекта в sys.path ДО любых локальных импортов
 WEB_DIR = Path(__file__).resolve().parent
@@ -28,11 +28,16 @@ ROOT_DIR = WEB_DIR.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+import zipfile
+import secrets
+import time
+import math
+from functools import wraps
 from flask import Flask, request, jsonify, Response, stream_with_context, session, redirect
-from sqlalchemy import desc
+from sqlalchemy import desc, text
 from db import (
     SessionLocal, User, Project, AuditProject,
-    AuditItem, MatchResult, Document, LLMLog, init_db
+    AuditItem, MatchResult, Document, LLMLog, init_db, is_production, IS_PROD
 )
 
 logger = logging.getLogger(__name__)
@@ -147,11 +152,14 @@ def format_parsing_error(e: Exception) -> tuple[dict, int]:
             'error_hint': "Сохраните файл в Microsoft Excel как «Книга Excel (.xlsx)» и повторите загрузку."
         }, 400
 
+    err_id = secrets.token_hex(4).upper()
+    logger.exception("Internal error [%s]: %s", err_id, err_str)
     return {
-        'error': f"{type(e).__name__}: {err_str}",
+        'error': f"Внутренняя ошибка сервера (код {err_id})",
+        'error_id': err_id,
         'error_title': "Ошибка при обработке сметного документа",
-        'error_message': err_str,
-        'error_hint': "Проверьте корректность загруженных файлов или воспользуйтесь готовыми типовыми комплектами."
+        'error_message': "Произошла непредвиденная ошибка при обработке сметного документа.",
+        'error_hint': "Проверьте корректность загруженных файлов или обратитесь к администратору с указанием кода ошибки."
     }, 500
 import match
 import baseline_legacy
@@ -161,28 +169,108 @@ import evaluate
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-app = Flask(
-    __name__,
-    static_folder=str(WEB_DIR),
-    static_url_path=""
-)
+app = Flask(__name__, static_folder=None)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
 
-# Конфигурация безопасности сессий (защита от подделки cookie)
-_env_name = os.getenv("ENV", "development").lower()
-_secret = os.getenv("SECRET_KEY")
-if not _secret:
-    if _env_name == "production" or os.getenv("FLASK_ENV") == "production":
-        raise RuntimeError("CRITICAL SECURITY ERROR: Переменная SECRET_KEY обязательна в production-окружении!")
-    import secrets
-    _secret = secrets.token_hex(32)
-    logging.warning("SECRET_KEY не задан в .env. Для разработки сгенерирован временный 256-битный ключ: %s...", _secret[:8])
+
+@app.errorhandler(413)
+def request_entity_too_large(e):
+    return jsonify({
+        'error': 'Размер файла превышает допустимый лимит (32 МБ)',
+        'error_title': 'Файл слишком большой',
+        'error_message': 'Максимальный допустимый размер сметного документа составляет 32 МБ.',
+        'error_hint': 'Разбейте смету на разделы или уменьшите размер файла перед загрузкой.'
+    }), 413
+
+
+# Конфигурация безопасности сессий и секретного ключа
+COMPROMISED_KEYS = {
+    "sverkasmet-secure-key-2026-b2b",
+    "your-secret-key-here",
+    "change-me",
+    "replace-with-a-secure-secret-key",
+    "placeholder",
+}
+
+_secret = os.getenv("SECRET_KEY", "").strip()
+if is_production():
+    if not _secret or _secret in COMPROMISED_KEYS or len(_secret) < 32:
+        raise RuntimeError("CRITICAL SECURITY ERROR: В production-окружении переменная SECRET_KEY обязательна, должна быть длиной от 32 символов и не совпадать с шаблонными/скомпрометированными ключами!")
+else:
+    if not _secret or _secret in COMPROMISED_KEYS or len(_secret) < 32:
+        _secret = secrets.token_hex(32)
+        logger.warning("SECRET_KEY не задан или ненадежен. Для разработки сгенерирован временный 256-битный ключ.")
 app.secret_key = _secret
 
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-if _env_name == "production":
+if is_production():
     app.config["SESSION_COOKIE_SECURE"] = True
+
+
+# Декораторы контроля доступа и ролей
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': 'Необходима авторизация', 'code': 'UNAUTHORIZED'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def role_required(*roles):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            user_id = session.get('user_id')
+            if not user_id:
+                return jsonify({'error': 'Необходима авторизация', 'code': 'UNAUTHORIZED'}), 401
+            db_sess = SessionLocal()
+            try:
+                user = db_sess.query(User).filter_by(id=user_id).first()
+                if not user or user.role not in roles:
+                    return jsonify({'error': 'Недостаточно прав для выполнения операции', 'code': 'FORBIDDEN'}), 403
+            finally:
+                db_sess.close()
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+
+# Защита от формульных инъекций (=, +, -, @)
+def sanitize_formula(val: Any) -> Any:
+    if isinstance(val, str) and val.startswith(('=', '+', '-', '@')):
+        return "'" + val
+    return val
+
+
+def validate_xlsx_safety(path: Path, max_uncompressed_bytes: int = 100 * 1024 * 1024) -> None:
+    """Защита от zip-бомб и поврежденных архивов."""
+    if not zipfile.is_zipfile(path):
+        return
+    total_size = 0
+    with zipfile.ZipFile(path, 'r') as z:
+        for info in z.infolist():
+            total_size += info.file_size
+            if total_size > max_uncompressed_bytes:
+                raise ValueError("Файл превышает допустимый размер в распакованном виде (защита от zip-бомбы).")
+
+
+# Ограничение частоты попыток входа (Rate Limiting)
+_login_attempts: Dict[str, List[float]] = {}
+_login_lock = threading.Lock()
+
+def check_login_rate_limit(key: str, max_attempts: int = 5, window_seconds: int = 300) -> bool:
+    now = time.time()
+    with _login_lock:
+        attempts = [t for t in _login_attempts.get(key, []) if now - t < window_seconds]
+        if len(attempts) >= max_attempts:
+            _login_attempts[key] = attempts
+            return False
+        attempts.append(now)
+        _login_attempts[key] = attempts
+        return True
 
 
 @app.teardown_appcontext
@@ -196,8 +284,41 @@ DATA_DIR = ROOT_DIR / "data"
 RESULTS_DIR = ROOT_DIR / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-LAST_RESULTS: List[Dict[str, Any]] = []
-ORIG_RESULTS: List[Dict[str, Any]] = []
+# Потокобезопасное хранение результатов сверки по пользователям (вместо глобальных списков)
+_user_results_lock = threading.Lock()
+_USER_RESULTS: Dict[str, Dict[str, Any]] = {}
+
+def set_user_results(user_id: Any, rows: List[Dict[str, Any]]) -> None:
+    with _user_results_lock:
+        _USER_RESULTS[str(user_id)] = {
+            'last': copy.deepcopy(rows),
+            'orig': copy.deepcopy(rows)
+        }
+
+def get_user_results(user_id: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    with _user_results_lock:
+        res = _USER_RESULTS.get(str(user_id))
+        if not res:
+            return [], []
+        return res['last'], res['orig']
+
+def update_user_row(user_id: Any, idx: int, action: str) -> Optional[Dict[str, Any]]:
+    with _user_results_lock:
+        res = _USER_RESULTS.get(str(user_id))
+        if not res or not (0 <= idx < len(res['last'])):
+            return None
+        row = res['last'][idx]
+        orig = res['orig'][idx]
+        if action == 'yes':
+            row['Верхний статус'] = 'Совпало'
+            row['Статус решения сметчика'] = 'Принято сметчиком'
+        elif action == 'no':
+            row['Верхний статус'] = 'Расхождение'
+            row['Статус решения сметчика'] = 'В правку (отклонено)'
+        elif action == 'undo':
+            res['last'][idx] = copy.deepcopy(orig)
+            row = res['last'][idx]
+        return copy.deepcopy(row)
 
 FIELDS = [
     'ВОР №', 'ВОР строка', 'ВОР раздел', 'ВОР: наименование', 'ВОР: единица', 'ВОР: количество',
@@ -341,11 +462,30 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
 
 
 @app.route('/api/compare', methods=['POST'])
+@login_required
 def api_compare():
     global LAST_RESULTS, ORIG_RESULTS
+    user_id = session.get('user_id')
     mode = request.form.get('mode', 'algo')
     preset = request.form.get('preset')
-    thr = float(request.form.get('threshold', 0.50))
+
+    if preset:
+        # 2.1: Пресеты только для роли lead на сервере
+        db_sess = SessionLocal()
+        try:
+            u = db_sess.query(User).filter_by(id=user_id).first()
+            if not u or u.role != 'lead':
+                return jsonify({'error': 'Доступ к эталонным пресетам разрешен только для роли lead', 'code': 'FORBIDDEN'}), 403
+        finally:
+            db_sess.close()
+
+    thr_raw = request.form.get('threshold', 0.50)
+    try:
+        thr = float(thr_raw)
+        if math.isnan(thr) or math.isinf(thr) or not (0.0 <= thr <= 1.0):
+            return jsonify({'error': 'Порог сходства (threshold) должен быть числом от 0.0 до 1.0'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Некорректное значение порога сходства (threshold)'}), 400
 
     tmp_files_to_clean = []
 
@@ -361,15 +501,21 @@ def api_compare():
             file_l = request.files['lsr']
 
             tmp_v = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-            tmp_l = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+            tmp_files_to_clean.append(Path(tmp_v.name))
             file_v.save(tmp_v.name)
-            file_l.save(tmp_l.name)
             tmp_v.close()
+
+            tmp_l = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+            tmp_files_to_clean.append(Path(tmp_l.name))
+            file_l.save(tmp_l.name)
             tmp_l.close()
 
             vor_path = Path(tmp_v.name)
             lsr_path = Path(tmp_l.name)
-            tmp_files_to_clean = [vor_path, lsr_path]
+
+            # Защита от zip-бомб
+            validate_xlsx_safety(vor_path)
+            validate_xlsx_safety(lsr_path)
 
         if not vor_path.exists() or not lsr_path.exists():
             return jsonify({'error': 'Файлы документов не найдены'}), 404
@@ -427,6 +573,7 @@ def api_compare():
 
         LAST_RESULTS = rows
         ORIG_RESULTS = copy.deepcopy(rows)
+        set_user_results(user_id, rows)
 
         if llm_stats:
             stats['llm_stats'] = llm_stats
@@ -449,11 +596,30 @@ def api_compare():
 
 
 @app.route('/api/compare_stream', methods=['POST'])
+@login_required
 def api_compare_stream():
     global LAST_RESULTS, ORIG_RESULTS
+    user_id = session.get('user_id')
     mode = request.form.get('mode', 'algo')
     preset = request.form.get('preset')
-    thr = float(request.form.get('threshold', 0.50))
+
+    if preset:
+        # 2.1: Пресеты только для роли lead на сервере
+        db_sess = SessionLocal()
+        try:
+            u = db_sess.query(User).filter_by(id=user_id).first()
+            if not u or u.role != 'lead':
+                return jsonify({'error': 'Доступ к эталонным пресетам разрешен только для роли lead', 'code': 'FORBIDDEN'}), 403
+        finally:
+            db_sess.close()
+
+    thr_raw = request.form.get('threshold', 0.50)
+    try:
+        thr = float(thr_raw)
+        if math.isnan(thr) or math.isinf(thr) or not (0.0 <= thr <= 1.0):
+            return jsonify({'error': 'Порог сходства (threshold) должен быть числом от 0.0 до 1.0'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Некорректное значение порога сходства (threshold)'}), 400
 
     tmp_files_to_clean = []
 
@@ -469,21 +635,31 @@ def api_compare_stream():
             file_l = request.files['lsr']
 
             tmp_v = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-            tmp_l = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+            tmp_files_to_clean.append(Path(tmp_v.name))
             file_v.save(tmp_v.name)
-            file_l.save(tmp_l.name)
             tmp_v.close()
+
+            tmp_l = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+            tmp_files_to_clean.append(Path(tmp_l.name))
+            file_l.save(tmp_l.name)
             tmp_l.close()
 
             vor_path = Path(tmp_v.name)
             lsr_path = Path(tmp_l.name)
-            tmp_files_to_clean = [vor_path, lsr_path]
+
+            # Защита от zip-бомб
+            validate_xlsx_safety(vor_path)
+            validate_xlsx_safety(lsr_path)
 
         if not vor_path.exists() or not lsr_path.exists():
+            for p in tmp_files_to_clean:
+                p.unlink(missing_ok=True)
             return jsonify({'error': 'Файлы документов не найдены'}), 404
 
         pair_error = _validate_document_pair(vor_path, lsr_path)
         if pair_error:
+            for p in tmp_files_to_clean:
+                p.unlink(missing_ok=True)
             return jsonify({
                 'error': pair_error,
                 'error_title': 'Несоответствие пары документов',
@@ -533,6 +709,7 @@ def api_compare_stream():
             init_rows, init_stats = format_rows(results, vor, lsr, llm_active=llm_needed)
             LAST_RESULTS = init_rows
             ORIG_RESULTS = copy.deepcopy(init_rows)
+            set_user_results(user_id, init_rows)
 
             ambig_count = sum(
                 1 for r in results
@@ -598,6 +775,7 @@ def api_compare_stream():
                         if item.get('type') == 'done':
                             LAST_RESULTS = item['rows']
                             ORIG_RESULTS = copy.deepcopy(item['rows'])
+                            set_user_results(user_id, item['rows'])
                         yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                     except queue.Empty:
                         if not t.is_alive():
@@ -607,6 +785,7 @@ def api_compare_stream():
                                     if item.get('type') == 'done':
                                         LAST_RESULTS = item['rows']
                                         ORIG_RESULTS = copy.deepcopy(item['rows'])
+                                        set_user_results(user_id, item['rows'])
                                     yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                             break
                         yield ": ping\n\n"
@@ -626,47 +805,29 @@ def api_compare_stream():
 
 
 @app.route('/api/action_row', methods=['POST'])
+@login_required
 def api_action_row():
     """Обработка решения сметчика по спорной строке (по BPMN)."""
-    global LAST_RESULTS, ORIG_RESULTS
-    data = request.get_json() or {}
-    idx = data.get('index')
-    act = data.get('action')  # 'confirm', 'reject', 'reset'
+    user_id = session.get('user_id')
+    data = request.get_json(silent=True) or {}
+    idx_raw = data.get('index')
+    act = data.get('action')
 
-    if idx is None or not (0 <= idx < len(LAST_RESULTS)):
-        return jsonify({'error': 'Неверный индекс строки'}), 400
+    try:
+        idx = int(idx_raw)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Индекс строки должен быть целым числом'}), 400
 
-    row = LAST_RESULTS[idx]
-    orig = ORIG_RESULTS[idx]
+    row = update_user_row(user_id, idx, act)
+    if row is None:
+        return jsonify({'error': 'Неверный индекс строки или отсутствуют данные сверки'}), 400
 
-    if act == 'confirm':
-        row['Статус решения сметчика'] = 'Подтверждено'
-        # По BPMN: подтверждённая сметчиком пара уходит на итоговую классификацию
-    elif act == 'reject':
-        # По BPMN Слайд 12: Сметчик отклонил -> Статус «Нет в рассматриваемой смете»
-        row['Статус решения сметчика'] = 'Отклонено'
-        row['Результат алгоритма'] = 'Нет в рассматриваемой смете'
-        row['Верхний статус'] = match.upper_status('Нет в рассматриваемой смете')
-        row['Предупреждение о формулировке'] = False
-        row['Причина предупреждения'] = ''
-        row['Условие предупреждения'] = ''
-        row['ЛСР №'] = ''
-        row['ЛСР шифр'] = ''
-        row['ЛСР: наименование'] = ''
-        row['ЛСР: единица'] = ''
-        row['ЛСР: количество'] = ''
-        row['Текстовое сходство'] = 0.0
-        row['Причина решения и расхождения'] = (
-            f"Отклонено сметчиком (исходный кандидат ЛСР №{orig['ЛСР №']}); "
-            f"присвоен статус «Нет в рассматриваемой смете»"
-        )
-    elif act == 'reset':
-        LAST_RESULTS[idx] = copy.deepcopy(orig)
-
-    return jsonify({'ok': True, 'row': LAST_RESULTS[idx]})
+    return jsonify({'ok': True, 'row': row})
 
 
 @app.route('/api/benchmark', methods=['POST'])
+@login_required
+@role_required('lead')
 def api_benchmark():
     try:
         benchmark_warnings = []
@@ -787,15 +948,23 @@ def api_benchmark():
 
 
 @app.route('/api/download_csv')
+@login_required
 def api_download_csv():
-    global LAST_RESULTS
-    if not LAST_RESULTS:
-        return "Нет сформированных результатов", 400
+    user_id = session.get('user_id')
+    last_res, _ = get_user_results(user_id)
+    if not last_res:
+        return jsonify({'error': 'Нет сформированных результатов сверки для выгрузки'}), 400
 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=FIELDS, delimiter=';')
     writer.writeheader()
-    writer.writerows(LAST_RESULTS)
+    sanitized_rows = []
+    for r in last_res:
+        sr = {}
+        for k, v in r.items():
+            sr[k] = sanitize_formula(v)
+        sanitized_rows.append(sr)
+    writer.writerows(sanitized_rows)
 
     csv_bytes = output.getvalue().encode('utf-8-sig')
     return Response(
@@ -854,7 +1023,7 @@ def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "С
     date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
     ws["A4"] = "Объект строительства:"
     ws["A4"].font = font_meta_b
-    ws["C4"] = title or "Объект сметного аудита"
+    ws["C4"] = sanitize_formula(title or "Объект сметного аудита")
     ws["C4"].font = font_meta
 
     ws["A5"] = "Дата формирования:"
@@ -864,7 +1033,7 @@ def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "С
 
     ws["G4"] = "Ответственный сметчик:"
     ws["G4"].font = font_meta_b
-    ws["I4"] = user_name or "Инженер-сметчик"
+    ws["I4"] = sanitize_formula(user_name or "Инженер-сметчик")
     ws["I4"].font = font_meta
 
     # 2. Заголовки таблицы
@@ -900,34 +1069,42 @@ def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "С
         ws.row_dimensions[current_row].height = 22
 
         n = it.get('n', idx)
-        vor_name = it.get('vor') or it.get('ВОР: наименование') or ''
-        lsr_name = it.get('lsr') or it.get('ЛСР: наименование') or ''
-        code = it.get('code') or it.get('ЛСР шифр') or ''
+        vor_name = sanitize_formula(it.get('vor') or it.get('ВОР: наименование') or '')
+        lsr_name = sanitize_formula(it.get('lsr') or it.get('ЛСР: наименование') or '')
+        code = sanitize_formula(it.get('code') or it.get('ЛСР шифр') or '')
 
         vv = it.get('vv') if it.get('vv') is not None else it.get('ВОР: количество')
         lv = it.get('lv') if it.get('lv') is not None else it.get('ЛСР: количество')
         try:
             vv_val = float(vv) if vv is not None and vv != '' else None
+            if vv_val is not None and (math.isnan(vv_val) or math.isinf(vv_val)):
+                vv_val = None
         except (ValueError, TypeError):
             vv_val = None
         try:
             lv_val = float(lv) if lv is not None and lv != '' else None
+            if lv_val is not None and (math.isnan(lv_val) or math.isinf(lv_val)):
+                lv_val = None
         except (ValueError, TypeError):
             lv_val = None
 
         vor_u = it.get('ВОР: единица') or it.get('vor_u') or it.get('u') or ''
         lsr_u = it.get('ЛСР: единица') or it.get('lsr_u') or it.get('u') or ''
         # Колонка «Цена» подписывается единицей цены (единица ЛСР):
-        u = lsr_u or vor_u or ''
+        u = sanitize_formula(lsr_u or vor_u or '')
 
         pr = it.get('pr') if it.get('pr') is not None else it.get('unit_price')
         try:
             pr_val = float(pr) if pr is not None and pr != '' else None
+            if pr_val is not None and (math.isnan(pr_val) or math.isinf(pr_val)):
+                pr_val = None
         except (ValueError, TypeError):
             pr_val = None
 
         calc_dv, calc_risk, _ = calculate_item_risk(vv_val, vor_u, lv_val, lsr_u, pr_val)
         dv = calc_dv
+        if dv is not None and (math.isnan(dv) or math.isinf(dv)):
+            dv = None
         if calc_risk is not None:
             risk_val = calc_risk
         else:
@@ -935,9 +1112,11 @@ def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "С
                 risk_val = float(it.get('risk') or it.get('financial_risk') or 0.0)
             except (ValueError, TypeError):
                 risk_val = 0.0
+        if math.isnan(risk_val) or math.isinf(risk_val):
+            risk_val = 0.0
         total_risk += risk_val
 
-        status = it.get('status') or it.get('Результат алгоритма') or it.get('cls') or ''
+        status = sanitize_formula(it.get('status') or it.get('Результат алгоритма') or it.get('cls') or '')
         dec = it.get('decision') or it.get('Статус решения сметчика') or 'Не обработано'
         if dec == 'yes':
             dec = 'Принято сметчиком'
@@ -945,8 +1124,9 @@ def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "С
             dec = 'В правку (отклонено)'
         elif dec == 'auto':
             dec = 'Автоматически'
+        dec = sanitize_formula(dec)
 
-        note = it.get('note') or it.get('Причина решения и расхождения') or ''
+        note = sanitize_formula(it.get('note') or it.get('Причина решения и расхождения') or '')
 
         row_fill = None
         st_str = str(status).lower()
@@ -1060,27 +1240,36 @@ def generate_discrepancy_act_excel(items: List[Dict[str, Any]], title: str = "С
 
 
 @app.route('/api/export_discrepancy_act', methods=['GET', 'POST'])
+@login_required
 def api_export_discrepancy_act():
     """Экспорт официального Акта разногласий (Дефектной ведомости) в Excel."""
-    global LAST_RESULTS
+    user_id = session.get('user_id')
+    last_res, _ = get_user_results(user_id)
+
     items = []
     title = "Сверка сметной документации"
     user_name = "Инженер-сметчик"
 
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
-        items = data.get('items', [])
+        req_items = data.get('items')
         title = data.get('title') or title
         user_name = data.get('user_name') or user_name
-    
-    if not items and LAST_RESULTS:
-        items = LAST_RESULTS
+        if req_items is not None:
+            if not isinstance(req_items, list) or len(req_items) > 10000:
+                return jsonify({"error": "Некорректный формат списка позиций (максимум 10 000 позиций)"}), 400
+            for it in req_items:
+                if not isinstance(it, dict):
+                    return jsonify({"error": "Элементы списка позиций должны быть объектами"}), 400
+            items = req_items
+
+    # 2.8: Если результаты есть у текущего пользователя на сервере, строим акт из них
+    if last_res:
+        items = last_res
 
     if not items:
         return jsonify({"error": "Нет данных для формирования Акта разногласий"}), 400
 
-    # Если пользователь авторизован, берем его имя из сессии
-    user_id = session.get('user_id')
     if user_id:
         db = SessionLocal()
         try:
@@ -1109,15 +1298,21 @@ def api_export_discrepancy_act():
 
 @app.route('/api/auth/register', methods=['POST'])
 def api_register():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     email = data.get('email', '').strip().lower()
     password = data.get('password', '')
     full_name = data.get('full_name', '').strip()
-    role = data.get('role', 'estimator')
     company = data.get('company', '').strip()
 
     if not email or not password or not full_name:
         return jsonify({'error': 'Заполните обязательные поля: Email, пароль и ФИО'}), 400
+
+    if len(password) < 8:
+        return jsonify({'error': 'Пароль должен содержать не менее 8 символов'}), 400
+
+    # 2.3: Роль из тела запроса игнорируется, всегда estimator.
+    # Администратор и lead назначаются только вручную администратором БД.
+    role = 'estimator'
 
     db_sess = SessionLocal()
     try:
@@ -1135,6 +1330,7 @@ def api_register():
         db_sess.commit()
         db_sess.refresh(user)
 
+        session.clear()
         session['user_id'] = user.id
         return jsonify({'ok': True, 'user': user.to_dict()}), 201
     finally:
@@ -1143,9 +1339,19 @@ def api_register():
 
 @app.route('/api/auth/login', methods=['POST'])
 def api_login():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     email = data.get('email', '').strip().lower()
     password = data.get('password', '')
+
+    # 2.13: Ограничение частоты попыток входа (Rate Limiting)
+    client_ip = request.remote_addr or "127.0.0.1"
+    rate_key = f"{client_ip}:{email}"
+    if not check_login_rate_limit(rate_key, max_attempts=5, window_seconds=300):
+        return jsonify({'error': 'Слишком много попыток входа. Попробуйте через 5 минут.', 'code': 'TOO_MANY_REQUESTS'}), 429
+
+    # 2.6: В production демо-вход строго заблокирован
+    if is_production() and email == 'demo@sverkasmet.ru':
+        return jsonify({'error': 'Вход под демонстрационным аккаунтом заблокирован в production-окружении'}), 403
 
     db_sess = SessionLocal()
     try:
@@ -1153,6 +1359,7 @@ def api_login():
         if not user or not user.check_password(password):
             return jsonify({'error': 'Неверный email или пароль'}), 401
 
+        session.clear()
         session['user_id'] = user.id
         return jsonify({'ok': True, 'user': user.to_dict()})
     finally:
@@ -1161,7 +1368,7 @@ def api_login():
 
 @app.route('/api/auth/logout', methods=['POST'])
 def api_logout():
-    session.pop('user_id', None)
+    session.clear()
     return jsonify({'ok': True})
 
 
@@ -1180,15 +1387,20 @@ def api_me():
 
 
 @app.route('/api/projects', methods=['GET'])
+@login_required
 def api_projects_list():
     user_id = session.get('user_id')
     db_sess = SessionLocal()
     try:
+        user = db_sess.query(User).filter_by(id=user_id).first()
+        if not user:
+            return jsonify({'error': 'Пользователь не найден'}), 401
         q = db_sess.query(Project)
-        if user_id:
-            user = db_sess.query(User).filter_by(id=user_id).first()
-            if user and user.role != 'lead':
-                q = q.filter((Project.user_id == user_id) | (Project.user_id == None))
+        # Архитектурное решение безопасности: роль lead видит все проекты организации
+        # для сквозного аудита и контроля сметного отдела; инженеры-сметчики (estimator)
+        # имеют строго изолированный доступ только к собственным проектам.
+        if user.role != 'lead':
+            q = q.filter(Project.user_id == user_id)
         projects = q.order_by(desc(Project.created_at)).all()
         return jsonify({'projects': [p.to_dict() for p in projects]})
     finally:
@@ -1196,12 +1408,21 @@ def api_projects_list():
 
 
 @app.route('/api/projects/<int:project_id>', methods=['GET'])
+@login_required
 def api_project_detail(project_id):
+    user_id = session.get('user_id')
     db_sess = SessionLocal()
     try:
+        user = db_sess.query(User).filter_by(id=user_id).first()
+        if not user:
+            return jsonify({'error': 'Пользователь не найден'}), 401
         project = db_sess.query(AuditProject).filter_by(id=project_id).first()
         if not project:
             return jsonify({'error': 'Проект не найден'}), 404
+        # Контроль доступа к ресурсу: доступ разрешен только владельцу или роли lead
+        if user.role != 'lead' and project.user_id != user_id:
+            return jsonify({'error': 'Проект не найден'}), 404
+
         items = [it.to_dict() for it in project.match_results]
         documents = [doc.to_dict() for doc in project.documents]
         llm_logs = [log.to_dict() for log in project.llm_logs]
@@ -1216,8 +1437,9 @@ def api_project_detail(project_id):
 
 
 @app.route('/api/projects/save', methods=['POST'])
+@login_required
 def api_project_save():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     user_id = session.get('user_id')
 
     title = data.get('title', 'Новая сверка')
@@ -1349,8 +1571,10 @@ def api_project_save():
 
 
 @app.route('/api/projects/item_decision', methods=['POST'])
+@login_required
 def api_item_decision():
-    data = request.get_json() or {}
+    user_id = session.get('user_id')
+    data = request.get_json(silent=True) or {}
     item_id = data.get('item_id')
     decision = data.get('decision')
 
@@ -1359,9 +1583,19 @@ def api_item_decision():
 
     db_sess = SessionLocal()
     try:
+        user = db_sess.query(User).filter_by(id=user_id).first()
+        if not user:
+            return jsonify({'error': 'Пользователь не найден'}), 401
+
         item = db_sess.query(AuditItem).filter_by(id=item_id).first()
         if not item:
             return jsonify({'error': 'Строка не найдена'}), 404
+
+        # Проверка прав доступа к связанному проекту:
+        project = db_sess.query(AuditProject).filter_by(id=item.project_id).first()
+        if not project or (user.role != 'lead' and project.user_id != user_id):
+            return jsonify({'error': 'Строка не найдена'}), 404
+
         item.user_decision = decision
         db_sess.commit()
         return jsonify({'ok': True, 'item': item.to_dict()})

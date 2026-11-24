@@ -203,13 +203,6 @@
           <input type="password" id="l-password" placeholder="••••••••" required>
         </div>
         <button type="submit" class="btn-submit" id="l-submit-btn">Войти в рабочее место</button>
-
-        <div class="demo-box">
-          <small>⚡ Экспресс-доступ для защиты диплома (ГЭК):</small>
-          <button type="button" class="btn-demo" onclick="fillDemoAndLogin()">
-            Войти как Саргсян Гагик (Ведущий сметчик)
-          </button>
-        </div>
       </form>
 
       <!-- ФОРМА РЕГИСТРАЦИИ -->
@@ -229,14 +222,13 @@
         <div class="form-group">
           <label>Роль в системе:</label>
           <select id="r-role">
-            <option value="estimator" selected>Инженер-сметчик (подрядчик)</option>
-            <option value="lead">Ведущий эксперт / Руководитель ПТО</option>
-            <option value="auditor">Служба заказчика / Технадзор</option>
+            <option value="estimator" selected>Инженер-сметчик (подрядчик / экспертиза)</option>
           </select>
+          <small style="color:var(--text-muted);font-size:11.5px;margin-top:2px;display:block;">* Права ведущего эксперта (lead) и администратора назначаются руководством вручную.</small>
         </div>
         <div class="form-group">
           <label>Пароль для входа:</label>
-          <input type="password" id="r-password" placeholder="Минимум 6 символов" required minlength="6">
+          <input type="password" id="r-password" placeholder="Минимум 8 символов" required minlength="8">
         </div>
         <button type="submit" class="btn-submit" id="r-submit-btn">Зарегистрировать аккаунт</button>
       </form>
@@ -328,12 +320,6 @@
         btn.textContent = 'Зарегистрировать аккаунт';
         btn.disabled = false;
       }
-    }
-
-    function fillDemoAndLogin() {
-      document.getElementById('l-email').value = 'demo@sverkasmet.ru';
-      document.getElementById('l-password').value = 'P@ssw0rd';
-      document.getElementById('form-login').dispatchEvent(new Event('submit'));
     }
   </script>
 </body>
