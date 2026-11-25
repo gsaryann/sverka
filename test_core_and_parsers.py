@@ -13,7 +13,8 @@ import units
 import llm_resolver
 import match
 
-DATA_DIR = Path("data")
+ROOT_DIR = Path(__file__).resolve().parent
+DATA_DIR = ROOT_DIR / "data"
 
 class TestCoreAndParsers(unittest.TestCase):
     def test_parser_warnings_ignore_resource_markers(self):
@@ -190,6 +191,35 @@ class TestCoreAndParsers(unittest.TestCase):
                     status_counts.get(st_name, 0), exp_st_cnt,
                     f"Расхождение статуса {st_name} в паре {vor_fn} + {lsr_fn}: ожидалось {exp_st_cnt}, получено {status_counts.get(st_name, 0)}"
                 )
+
+    def test_metrics_conclusions_match_table(self):
+        """Задача 1 (Задание 3): каждое число из раздела аналитических выводов встречается в таблицах отчёта."""
+        import re
+        metrics_dir = ROOT_DIR / "docs" / "metrics"
+        f1_files = sorted(metrics_dir.glob("f1_*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not f1_files:
+            self.skipTest("Файл отчета f1_*.md еще не сгенерирован.")
+
+        text = f1_files[0].read_text(encoding="utf-8")
+        self.assertIn("## 4. Аналитический вывод", text)
+        parts = text.split("## 4. Аналитический вывод")
+        tables_text = parts[0]
+        concl_text = parts[1]
+
+        floats = re.findall(r'\b0\.\d{4}\b', concl_text)
+        pcts = re.findall(r'\b\d+\.\d+%', concl_text)
+        pps = re.findall(r'[-+]?\d+\.\d+\s*п\.п\.', concl_text)
+        ratios = re.findall(r'\b\d+/\d+\b', concl_text)
+
+        all_numbers = floats + pcts + pps + ratios
+        self.assertGreater(len(all_numbers), 0, "В разделе выводов должны быть приведены числовые доказательства")
+
+        for num in all_numbers:
+            self.assertIn(
+                num, tables_text,
+                f"Число '{num}' из выводов отсутствует в таблицах отчёта {f1_files[0].name}!"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
