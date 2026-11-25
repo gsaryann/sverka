@@ -74,11 +74,12 @@ def parse_answer(text, k):
 class OpenAICompat:
     def __init__(self, cfg):
         import openai
-        key = os.environ.get(cfg["api_key_env"], "").strip()
+        key = (os.environ.get(cfg.get("api_key_env", ""), "") if cfg.get("api_key_env") else cfg.get("api_key", "")).strip()
         if not key:
-            raise RuntimeError(f"нет ключа {cfg['api_key_env']}")
-        kw = dict(api_key=key, base_url=cfg["base_url"])
-        model = cfg["model"]
+            raise RuntimeError(f"нет ключа {cfg.get('api_key_env', 'api_key')}")
+        base_url = (os.environ.get(cfg.get("base_url_env", ""), "") if cfg.get("base_url_env") else cfg.get("base_url", "")).strip() or cfg.get("base_url")
+        kw = dict(api_key=key, base_url=base_url)
+        model = (os.environ.get(cfg.get("model_env", ""), "") if cfg.get("model_env") else cfg.get("model", "")).strip() or cfg.get("model")
         if cfg.get("folder_env"):
             folder = os.environ.get(cfg["folder_env"], "").strip()
             if not folder:
