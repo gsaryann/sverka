@@ -111,6 +111,12 @@ def generate_risk_report():
             print(f"  - Поз. №{p['num']}: ВОР={p['vor_qty']} {p['vor_unit']} vs ЛСР={p['lsr_qty']} {p['lsr_unit']}, цена={p['unit_price']} ₽, ΔV={p['delta_v']} -> риск={p['risk']:,.2f} ₽")
 
     # Генерация Markdown-отчета
+    for old_f in DOCS_METRICS_DIR.glob("risk_*.md"):
+        try:
+            old_f.unlink()
+        except Exception:
+            pass
+
     out_md = DOCS_METRICS_DIR / f"risk_{git_hash}.md"
     with open(out_md, "w", encoding="utf-8") as f:
         f.write(f"# Воспроизводимый отчёт по финансовым рискам расхождений\n\n")
