@@ -31,6 +31,48 @@ class TestWebLayerSecurity(unittest.TestCase):
         app.config['TESTING'] = True
         cls.client = app.test_client()
 
+    def test_no_exception_text_leaks(self):
+        """Задача 4: сервер не должен отдавать клиенту текст исключений (/secret/path SELECT password)."""
+        from unittest.mock import patch
+
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess['user_id'] = 9999
+            sess['user_email'] = 'test_leak@sverkasmet.ru'
+            sess['user_role'] = 'lead'
+
+        # 1. /api/compare при неожиданном исключении
+        with patch('web.web_app._validate_document_pair', return_value=None), \
+             patch('web.web_app.parse_vor', side_effect=Exception("/secret/path SELECT password")):
+            data = {
+                'vor': (io.BytesIO(b'dummy vor content'), 'vor.xlsx'),
+                'lsr': (io.BytesIO(b'dummy lsr content'), 'lsr.xlsx')
+            }
+            resp = client.post('/api/compare', data=data, content_type='multipart/form-data')
+            self.assertEqual(resp.status_code, 500)
+            json_data = resp.get_json()
+            self.assertNotIn("secret", str(json_data).lower())
+            self.assertIn("error_id", json_data)
+
+        # 2. /api/compare_stream при неожиданном исключении
+        with patch('web.web_app._validate_document_pair', return_value=None), \
+             patch('web.web_app.parse_vor', side_effect=Exception("/secret/path SELECT password")):
+            data = {
+                'vor': (io.BytesIO(b'dummy vor content'), 'vor.xlsx'),
+                'lsr': (io.BytesIO(b'dummy lsr content'), 'lsr.xlsx')
+            }
+            resp_stream = client.post('/api/compare_stream', data=data, content_type='multipart/form-data')
+            stream_body = resp_stream.get_data(as_text=True)
+            self.assertNotIn("secret", stream_body.lower())
+            self.assertIn("error_id", stream_body)
+
+        # 3. Файл > 32 МБ -> ответ 413 в формате JSON
+        huge_file = io.BytesIO(b"0" * (33 * 1024 * 1024))
+        resp_413 = client.post('/api/compare', data={'vor': (huge_file, 'huge.xlsx')}, content_type='multipart/form-data')
+        self.assertEqual(resp_413.status_code, 413)
+        self.assertTrue(resp_413.is_json)
+        self.assertIn("32 МБ", resp_413.get_json().get("error", ""))
+
     def test_results_isolated_between_users(self):
         """Задача 3 (п. 2.4): изоляция результатов между пользователями."""
         from web.web_app import set_user_results

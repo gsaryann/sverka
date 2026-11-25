@@ -110,6 +110,13 @@ def format_parsing_error(e: Exception) -> tuple[dict, int]:
         'error_message': "Произошла непредвиденная ошибка при обработке сметного документа.",
         'error_hint': "Проверьте корректность загруженных файлов или обратитесь к администратору с указанием кода ошибки."
     }, 500
+
+
+def error_response(public_message: str = "Внутренняя ошибка сервера", status: int = 500) -> tuple[Response, int]:
+    """Формирует безопасный ответ об ошибке с уникальным error_id без раскрытия деталей исключений."""
+    err_id = secrets.token_hex(4)
+    logger.exception("Error [%s]: %s", err_id, public_message)
+    return jsonify({"error": public_message, "error_id": err_id}), status
 import match
 import baseline_legacy
 import perturb
@@ -741,7 +748,9 @@ def api_compare_stream():
                 yield f"data: {json.dumps({'type': 'done', 'rows': init_rows, 'stats': init_stats, 'warning': warning_msg}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            err_id = secrets.token_hex(4)
+            logger.exception("Stream error [%s]: %s", err_id, e)
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Внутренняя ошибка сервера при сопоставлении', 'error_id': err_id}, ensure_ascii=False)}\n\n"
         finally:
             for p in tmp_files_to_clean:
                 try:
@@ -892,7 +901,7 @@ def api_benchmark():
             'warnings': benchmark_warnings
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response("Ошибка при проведении бенчмарка", 500)
 
 
 @app.route('/api/download_csv')
