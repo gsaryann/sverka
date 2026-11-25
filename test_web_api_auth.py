@@ -7,6 +7,12 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    import pytest
+    pytest.importorskip("sqlalchemy")
+except ImportError:
+    pass
+
 ROOT_DIR = Path(__file__).parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))

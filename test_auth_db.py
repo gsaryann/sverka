@@ -13,6 +13,12 @@ import unittest
 from decimal import Decimal
 
 try:
+    import pytest
+    pytest.importorskip("sqlalchemy")
+except ImportError:
+    pass
+
+try:
     from sqlalchemy.exc import IntegrityError
     from db import (
         SessionLocal, User, AuditProject, Project,

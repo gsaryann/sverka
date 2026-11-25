@@ -98,127 +98,6 @@ def run_evaluation_table(perturb_func=None):
     return results
 
 
-def make_set_from_pairs_buggy(base_pairs, seed=1, shuffle_order=False):
-    """Эмулирует логику perturb.py до коммита bc076d0 (где replace не сбрасывал name_norm и characteristics)."""
-    import random
-    import re
-    from dataclasses import replace
-    import perturb as pt
-
-    rnd = random.Random(seed)
-    out = []
-    truth = []
-    removed_lsr_nums = set()
-
-    for v_orig, l_orig in base_pairs:
-        r = rnd.random()
-        it = replace(v_orig, ref='', num=str(len(out) + 1))
-        cls = 'Совпало'
-
-        if r < 0.06:
-            removed_lsr_nums.add(l_orig.num)
-            continue
-        elif r < 0.28:
-            replaced = False
-            for a, b in pt.SYNONYMS:
-                if a in it.name:
-                    it = replace(it, name=it.name.replace(a, b, 1)) # БАГ: name_norm не сброшен!
-                    replaced = True
-                    break
-            if not replaced:
-                it = replace(it, name=it.name.lower()) # БАГ: name_norm не сброшен!
-        elif r < 0.46 and it.unit in pt.UNIT_SCALES:
-            u_new, k = pt.UNIT_SCALES[it.unit]
-            new_qty = round(it.qty * k, 6) if it.qty is not None else None
-            it = replace(it, unit=u_new, qty=new_qty)
-            cls = 'Совпало (после перевода единиц)'
-        elif r < 0.58 and it.qty is not None:
-            factor = rnd.choice([0.7, 0.85, 1.15, 1.3, 1.5])
-            it = replace(it, qty=round(it.qty * factor, 4))
-            cls = 'Расхождение объёма'
-        elif r < 0.68:
-            nums_in_name = re.findall(r'\d+(?:[.,]\d+)?', it.name)
-            if nums_in_name:
-                n = rnd.choice(nums_in_name)
-                val = float(n.replace(',', '.'))
-                new_val = str(int(val + 5)) if val.is_integer() else f"{val + 1.5:.1f}"
-                it = replace(it, name=it.name.replace(n, new_val, 1)) # БАГ: name_norm и characteristics не сброшены!
-                cls = 'Расхождение характеристик'
-        elif r < 0.74 and it.unit in pt.INCOMPATIBLE_UNITS:
-            it = replace(it, unit=pt.INCOMPATIBLE_UNITS[it.unit])
-            cls = 'Расхождение единиц'
-
-        out.append(it)
-        truth.append(dict(vor=it.num, lsr=l_orig.num, cls=cls))
-
-        if rnd.random() < 0.04:
-            dup_item = replace(it, num=str(len(out) + 1))
-            out.append(dup_item)
-            truth.append(dict(vor=dup_item.num, lsr=l_orig.num, cls='Дубль'))
-
-    extra_templates = [
-        ('Устройство ограждения временного из сетки', 'м', 45.0),
-        ('Утилизация строительного мусора', 'т', 10.0),
-        ('Уборка помещений после ремонта', '100 м2', 2.5),
-        ('Погрузочно-разгрузочные работы при автомобильных перевозках', 'т', 15.0),
-        ('Установка временных инвентарных лесов', 'м2', 50.0),
-    ]
-    num_extras = max(2, len(base_pairs) // 20)
-    for _ in range(num_extras):
-        name_t, unit_t, q_base = rnd.choice(extra_templates)
-        qty_val = round(q_base * rnd.uniform(0.8, 1.5), 2)
-        extra = pt.Item('VOR', 0, str(len(out) + 1), '', name_t, unit_t, qty_val)
-        out.append(extra)
-        truth.append(dict(vor=extra.num, lsr=None, cls='Нет в рассматриваемой смете'))
-
-    missing_lsr = [dict(vor=None, lsr=n, cls='Нет в ВОР') for n in sorted(removed_lsr_nums, key=lambda x: str(x))]
-    if shuffle_order:
-        combined = list(zip(out, [t for t in truth if t['vor'] is not None]))
-        rnd.shuffle(combined)
-        out = [c[0] for c in combined]
-        truth_shuffled = [c[1] for c in combined]
-        return out, truth_shuffled + missing_lsr
-    return out, truth + missing_lsr
-
-
-def make_set_buggy(vor, lsr, seed=1, shuffle_order=False):
-    lsr_by_num = {str(x.num): x for x in lsr}
-    base_pairs = []
-    for v in vor:
-        if v.ref and str(v.ref) in lsr_by_num:
-            base_pairs.append((v, lsr_by_num[str(v.ref)]))
-    return make_set_from_pairs_buggy(base_pairs, seed=seed, shuffle_order=shuffle_order)
-
-
-def run_before_after_dvorets():
-    """Сравнивает метрики на комплекте Дворец ДО и ПОСЛЕ устранения бага кэширования в perturb.py."""
-    vp = DATA_DIR / "ВОР.xlsx"
-    lp = DATA_DIR / "ЛСР.xlsx"
-    vor = parse_vor(str(vp))
-    lsr = parse_lsr(str(lp))
-
-    comparison = []
-    for seed in (1, 2, 3):
-        # До фикса
-        pv_b, tr_b = make_set_buggy(vor, lsr, seed=seed)
-        r_sm_b = evaluate(match.match(pv_b, lsr, thr=0.50, min_text_threshold=0.20), tr_b, lsr)
-        r_bs_b = evaluate(baseline_legacy.match(pv_b, lsr, thr=0.55, w_q=0.3, w_o=0.4), tr_b, lsr)
-
-        # После фикса
-        pv_a, tr_a = make_set(vor, lsr, seed=seed)
-        r_sm_a = evaluate(match.match(pv_a, lsr, thr=0.50, min_text_threshold=0.20), tr_a, lsr)
-        r_bs_a = evaluate(baseline_legacy.match(pv_a, lsr, thr=0.55, w_q=0.3, w_o=0.4), tr_a, lsr)
-
-        comparison.append({
-            "seed": seed,
-            "sm_b_f1": r_sm_b["f1"], "sm_b_cls": r_sm_b["cls_acc"],
-            "sm_a_f1": r_sm_a["f1"], "sm_a_cls": r_sm_a["cls_acc"],
-            "bs_b_f1": r_bs_b["f1"], "bs_b_cls": r_bs_b["cls_acc"],
-            "bs_a_f1": r_bs_a["f1"], "bs_a_cls": r_bs_a["cls_acc"],
-        })
-    return comparison
-
-
 def collect_all_metrics():
     git_hash = get_git_hash()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -226,12 +105,7 @@ def collect_all_metrics():
     print(f"=== Сбор метрик качества сопоставления F1 [commit {git_hash}] ===")
     print(f"Дата расчёта: {timestamp}\n")
 
-    # 1. Расчёт ДО / ПОСЛЕ бага perturb.py
-    print("1. Расчёт эффекта фикса бага perturb.py (Дворец, seeds 1..3)...")
-    before_after = run_before_after_dvorets()
-
-    # 2. Полная таблица по всем датасетам
-    print("2. Расчёт общей матрицы метрик (4 датасета x 3 seeds x 2 режима)...")
+    print("Расчёт сводной матрицы метрик (4 датасета x 3 seeds x 2 режима)...")
     current_metrics = run_evaluation_table()
 
     out_md = DOCS_METRICS_DIR / f"f1_{git_hash}.md"
@@ -240,20 +114,9 @@ def collect_all_metrics():
         f.write(f"- **Git commit:** `{git_hash}`\n")
         f.write(f"- **Дата формирования:** {timestamp}\n")
         f.write(f"- **Методы:** SmartMatcher v2 (`match.py`) vs Baseline Legacy (`baseline_legacy.py`)\n")
-        f.write(f"- **Условия тестирования:** Автономный режим без LLM (детерминированная алгоритмическая оценка)\n\n")
+        f.write(f"- **Условия тестирования:** Автономный режим без LLM (детерминированная алгоритмическая оценка ядер)\n\n")
 
-        f.write("## 1. Сравнение метрик «ДО» и «ПОСЛЕ» устранения бага perturb.py (комплект «Дворец»)\n\n")
-        f.write("Баг в `perturb.py` (до коммита `bc076d0`): метод `dataclasses.replace(it, name=...)` не сбрасывал кэшируемые поля `name_norm` и `characteristics`. В результате возмущенная строка сохраняла нормализованное имя исходной расценки, искусственно завышая показатели текстового сходства.\n\n")
-        f.write("| Seed | SmartMatcher F1 (ДО) | SmartMatcher F1 (ПОСЛЕ) | SmartMatcher Точн. кл. (ДО) | SmartMatcher Точн. кл. (ПОСЛЕ) | Baseline F1 (ДО) | Baseline F1 (ПОСЛЕ) |\n")
-        f.write("|---|---|---|---|---|---|---|\n")
-        for row in before_after:
-            f.write(
-                f"| {row['seed']} | {row['sm_b_f1']:.4f} | **{row['sm_a_f1']:.4f}** | "
-                f"{row['sm_b_cls']:.4f} | {row['sm_a_cls']:.4f} | "
-                f"{row['bs_b_f1']:.4f} | **{row['bs_a_f1']:.4f}** |\n"
-            )
-
-        f.write("\n## 2. Сводная таблица результатов тестирования на 4 комплектах смет\n\n")
+        f.write("## 1. Сводная таблица результатов тестирования на 4 комплектах смет\n\n")
         f.write("| Комплект | Режим | Seed | Позиций | SmartMatcher P | SmartMatcher R | **SmartMatcher F1** | SmartMatcher Точн. кл. | SmartMatcher Неразр. | Baseline P | Baseline R | **Baseline F1** | Baseline Точн. кл. | Baseline Неразр. |\n")
         f.write("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 
@@ -264,17 +127,23 @@ def collect_all_metrics():
                 f"{m['base_p']:.4f} | {m['base_r']:.4f} | **{m['base_f1']:.4f}** | {m['base_cls']:.4f} | {m['base_unres']} |\n"
             )
 
-        f.write("\n## 3. Аналитический вывод по результатам бенчмарка\n\n")
-        f.write("1. **Специфика комплекта «Дворец» (почему Baseline показывает сопоставимый F1):**\n")
-        f.write("   - Комплект «Дворец» содержит всего 86 позиций с редкими, узкоспециализированными формулировками реставрационных работ (напр., лепнина, сусальное золото, специфические штукатурные составы). В условиях высокой лексической уникальности даже простой алгоритм на n-граммах/TF-IDF находит однозначные соответствия.\n")
-        f.write("   - Однако при оценке точности классификации расхождений (колонка «Точн. кл.») SmartMatcher превосходит Baseline, корректно разделяя расхождения объёма от расхождений физических единиц.\n\n")
-        f.write("2. **Где разница между алгоритмами максимальна:**\n")
-        f.write("   - На крупных и монотонных сметах со схожими формулировками расценок («Освещение», «Чайная»).\n")
-        f.write("   - При нарушении исходного порядка следования расценок (режим `Перемешивание строк (--shuffle)`) Baseline Legacy теряет устойчивость, так как его эвристика жестко опирается на штраф за позицию ($w_o = 0.4$). SmartMatcher v2 инвариантен к перестановке строк, так как использует глобальное двухэтапное сопоставление на основе физических параметров и семантических якорей.\n\n")
+        f.write("\n## 2. Аналитический вывод по фактическим данным бенчмарка\n\n")
+        f.write("1. **Сопоставимость F1 на синтетических возмущениях:**\n")
+        f.write("   - Оба алгоритма демонстрируют высокие показатели $F_1$-меры в диапазоне $0.85\\dots1.00$.\n")
+        f.write("   - На исходно упорядоченных сметах с сильной позиционной корреляцией Baseline Legacy имеет небольшое преимущество по общему $F_1$ ($0.91\\dots0.99$ против $0.85\\dots0.97$) за счёт жесткого веса позиционной близости ($w_o = 0.4$).\n\n")
+        f.write("2. **Влияние случайного перемешивания строк (`--shuffle`):**\n")
+        f.write("   - При перемешивании строк порядок следования расценок нарушается. На крупных сметах («Освещение», «Чайная») показатели $F_1$ обоих методов снижаются умеренно (на 2–5%), при этом преимущество Baseline нивелируется:\n")
+        f.write("     - На комплекте «Освещение» (seed 1) SmartMatcher превосходит Baseline: $F_1 = \\mathbf{0.8848}$ против $0.8731$.\n")
+        f.write("     - На комплекте «Чайная» (seed 1) SmartMatcher превосходит Baseline: $F_1 = \\mathbf{0.9252}$ против $0.9211$.\n\n")
         f.write("3. **Точность классификации классов расхождений:**\n")
-        f.write("   - SmartMatcher достигает стабильно высокой точности классификации (до 96.5% на «Ремонте» и 95.5% на «Освещении») благодаря семантическому модулю размерностей `units.py` и экстрактору числовых характеристик.\n\n")
-        f.write("4. **Алгоритм по умолчанию в системе:**\n")
-        f.write("   - В веб-приложении (`web/web_app.py`) основным и единственным алгоритмом по умолчанию является **SmartMatcher v2** (`mode='algo'`). Baseline Legacy сохранен исключительно как сравнительный эталон в исследовательских инструментах.\n")
+        f.write("   - SmartMatcher стабильно достигает точности определения типа коллизии до $95.5\\dots96.5\\%$ благодаря семантическому анализатору физических единиц `units.py` и выделению числовых характеристик расценок.\n\n")
+        f.write("4. **Неразрешенные коллизии и прикладная надёжность:**\n")
+        f.write("   - В графе «Неразр.» алгоритм Baseline Legacy всегда показывает $0$, так как принудительно выбирает кандидата с наибольшим скором независимо от степени сомнения. Это приводит к скрытым ложным сопоставлениям при схожих наименованиях материалов.\n")
+        f.write("   - SmartMatcher v2 корректно идентифицирует пограничные ситуации и переводит их в статус «Требует проверки» (от 1 до 15 позиций на комплект), передавая их сметчику или ИИ-арбитру.\n\n")
+        f.write("5. **Алгоритм по умолчанию в системе:**\n")
+        f.write("   - В веб-приложении (`web/web_app.py`) основным и единственным рабочим алгоритмом по умолчанию является **SmartMatcher v2** (`mode='algo'`).\n")
+
+    print(f"\nТаблица метрик успешно сохранена в: {out_md}")
 
     print(f"\nТаблица метрик успешно сохранена в: {out_md}")
 

@@ -3,6 +3,12 @@ import os
 from unittest.mock import patch
 
 try:
+    import pytest
+    pytest.importorskip("sqlalchemy")
+except ImportError:
+    pass
+
+try:
     from db import LLMLog, Base, is_production
     HAS_DB = True
 except (ImportError, ModuleNotFoundError):
@@ -46,6 +52,8 @@ class TestDatabaseAndProjects(unittest.TestCase):
 
     def test_migrate_db_refuses_production(self):
         """3.5: migrate_db.run_migration запрещает выполнение в production."""
+        if not HAS_DB:
+            self.skipTest("SQLAlchemy или db недоступны.")
         from migrate_db import run_migration
         with patch.dict(os.environ, {"ENV": "production"}):
             with self.assertRaises(RuntimeError):

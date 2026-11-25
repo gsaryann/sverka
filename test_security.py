@@ -298,6 +298,34 @@ class TestWebLayerSecurity(unittest.TestCase):
         finally:
             tf_path.unlink(missing_ok=True)
 
+    def test_max_items_limit_enforced(self):
+        """Проверка ограничения MAX_ITEMS (400 при превышении лимита)."""
+        from web.web_app import MAX_ITEMS
+        self.assertEqual(MAX_ITEMS, 10000)
+
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = 66666
+
+            oversized_items = [{"n": i} for i in range(MAX_ITEMS + 1)]
+            resp = client.post("/api/projects/save", json={"items": oversized_items})
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn("10000", resp.get_json().get("error", ""))
+
+    def test_session_clear_on_logout(self):
+        """2.13: session.clear() полностью сбрасывает данные сессии при выходе."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = 55555
+                sess['custom_flag'] = 'secret'
+
+            resp = client.post("/api/auth/logout")
+            self.assertEqual(resp.status_code, 200)
+
+            with client.session_transaction() as sess:
+                self.assertNotIn('user_id', sess)
+                self.assertNotIn('custom_flag', sess)
+
 
 if __name__ == "__main__":
     unittest.main()

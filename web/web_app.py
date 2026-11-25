@@ -163,6 +163,9 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 if is_production():
     app.config["SESSION_COOKIE_SECURE"] = True
 
+# Максимальное допустимое число позиций в запросах
+MAX_ITEMS: int = 10000
+
 
 # Декораторы контроля доступа и ролей
 def login_required(f):
@@ -185,7 +188,10 @@ def role_required(*roles):
             db_sess = SessionLocal()
             try:
                 user = db_sess.query(User).filter_by(id=user_id).first()
-                if not user or user.role not in roles:
+                if not user:
+                    session.clear()
+                    return jsonify({'error': 'Необходима авторизация', 'code': 'UNAUTHORIZED'}), 401
+                if user.role not in roles:
                     return jsonify({'error': 'Недостаточно прав для выполнения операции', 'code': 'FORBIDDEN'}), 403
             finally:
                 db_sess.close()
@@ -1213,8 +1219,8 @@ def api_export_discrepancy_act():
         title = data.get('title') or title
         user_name = data.get('user_name') or user_name
         if req_items is not None:
-            if not isinstance(req_items, list) or len(req_items) > 10000:
-                return jsonify({"error": "Некорректный формат списка позиций (максимум 10 000 позиций)"}), 400
+            if not isinstance(req_items, list) or len(req_items) > MAX_ITEMS:
+                return jsonify({"error": f"Некорректный формат списка позиций (максимум {MAX_ITEMS} позиций)"}), 400
             for it in req_items:
                 if not isinstance(it, dict):
                     return jsonify({"error": "Элементы списка позиций должны быть объектами"}), 400
@@ -1317,6 +1323,7 @@ def api_login():
     try:
         user = db_sess.query(User).filter_by(email=email).first()
         if not user or not user.check_password(password):
+            session.clear()
             return jsonify({'error': 'Неверный email или пароль'}), 401
 
         session.clear()
@@ -1405,8 +1412,8 @@ def api_project_save():
     title = data.get('title', 'Новая сверка')
     object_name = data.get('object_name', title)
     items_data = data.get('items', [])
-    if not isinstance(items_data, list) or len(items_data) > 10000:
-        return jsonify({'error': 'Некорректный формат списка позиций (максимум 10 000 позиций)'}), 400
+    if not isinstance(items_data, list) or len(items_data) > MAX_ITEMS:
+        return jsonify({'error': f'Некорректный формат списка позиций (максимум {MAX_ITEMS} позиций)'}), 400
     for it in items_data:
         if not isinstance(it, dict):
             return jsonify({'error': 'Элементы списка позиций должны быть объектами'}), 400
