@@ -353,6 +353,10 @@ class T(unittest.TestCase):
         self.assertEqual(map_forward, map_reversed)
 
     def test_local_client_ask_returns_text_and_counts_tokens(self):
+        import pytest
+        openai_mod = pytest.importorskip("openai")
+        if not hasattr(openai_mod, "OpenAI"):
+            raise unittest.SkipTest("Требуется установленная библиотека openai")
         base_url = f"http://127.0.0.1:{self.server_port}/v1"
         cli = LocalClient(base_url=base_url, model="qwen2.5:7b-instruct", timeout=10.0)
         self.assertEqual(cli.provider, "local")

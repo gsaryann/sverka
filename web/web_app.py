@@ -445,6 +445,12 @@ def api_compare():
         ok, msg = check_local_llm()
         if not ok:
             return error_response(msg, 503)
+        try:
+            import openai as _openai
+        except (ImportError, ModuleNotFoundError):
+            _openai = None
+        if _openai is None or not hasattr(_openai, "OpenAI"):
+            return error_response("Не установлена библиотека openai", 503)
 
     if preset:
         # 2.1: Пресеты только для роли lead на сервере
@@ -542,7 +548,12 @@ def api_compare():
 
             if mode in ('hybrid', 'arbitration', 'hybrid_local'):
                 from llm_resolver import make_client, resolve
-                client = make_client("local" if mode == "hybrid_local" else "yandex")
+                try:
+                    client = make_client("local" if mode == "hybrid_local" else "yandex")
+                except RuntimeError as e:
+                    if mode == "hybrid_local" and "openai" in str(e).lower():
+                        return error_response("Не установлена библиотека openai", 503)
+                    raise
                 cache_path = str(RESULTS_DIR / "llm_cache.json")
                 results, llm_stats = resolve(results, vor, lsr, client, mode='arbitration', cache_path=cache_path, verbose=False)
             elif mode == 'hybrid_weak':
@@ -588,6 +599,12 @@ def api_compare_stream():
         ok, msg = check_local_llm()
         if not ok:
             return error_response(msg, 503)
+        try:
+            import openai as _openai
+        except (ImportError, ModuleNotFoundError):
+            _openai = None
+        if _openai is None or not hasattr(_openai, "OpenAI"):
+            return error_response("Не установлена библиотека openai", 503)
 
     if preset:
         # 2.1: Пресеты только для роли lead на сервере
@@ -750,6 +767,7 @@ def api_compare_stream():
                 t = threading.Thread(target=worker, daemon=True)
                 t.start()
 
+                last_ping = time.monotonic()
                 while True:
                     try:
                         item = q.get(timeout=0.25)
@@ -767,7 +785,10 @@ def api_compare_stream():
                                         set_user_results(user_id, item['rows'])
                                     yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                             break
-                        yield ": ping\n\n"
+                        now = time.monotonic()
+                        if now - last_ping >= 10.0:
+                            last_ping = now
+                            yield ": ping\n\n"
             else:
                 yield f"data: {json.dumps({'type': 'done', 'rows': init_rows, 'stats': init_stats, 'warning': warning_msg}, ensure_ascii=False)}\n\n"
 
