@@ -109,6 +109,36 @@ def _f(value) -> Optional[float]:
     return result
 
 
+def _is_noise_row_number(raw_num: str, has_qty: bool, has_unit: bool) -> bool:
+    """Определяет, является ли строка шумом (ресурсы 'Н', 'П,Н' или заголовки разделов без объемов/единиц).
+
+    Шум:
+    1. Пустой номер.
+    2. Служебный заголовок таблицы ('№', 'п/п', 'номер' и т.д.).
+    3. Номер состоит только из букв и запятых (маркеры ресурсов: 'Н', 'П,Н', 'Н,П', 'М', 'Э' и т.п.).
+    4. В строке нет ни количества, ни единицы (заголовок раздела или пустая строка).
+    Всё остальное с непустым номером остаётся значимой строкой (не шумом, False).
+    """
+    s = (raw_num or "").strip()
+    if not s:
+        return True
+
+    s_lower = s.lower()
+    if s_lower in ("раздел", "итог", "всего", "номер", "№", "п/п", "№ п/п", "№п/п"):
+        return True
+    if any(s_lower.startswith(prefix) for prefix in ("раздел ", "подраздел ")):
+        return True
+
+    letters_only = re.sub(r'[\s,]+', '', s)
+    if letters_only and letters_only.isalpha():
+        return True
+
+    if not has_qty and not has_unit:
+        return True
+
+    return False
+
+
 def _clean_num(value) -> str:
     """Извлекает строковый номер позиции: '1', '1.1', '2 О', 'п.5', '№7', '1,5'."""
     if value is None:
@@ -329,7 +359,9 @@ def _read_sheet(ws, doc: str):
                             last_item.total_price = round(tp, 2)
                         if last_item.unit_price is None and last_item.qty and abs(last_item.qty) > 0:
                             last_item.unit_price = round(abs(tp / last_item.qty), 2)
-            if raw_num_str and not any(kw in raw_num_str.lower() for kw in ("раздел", "итог", "всего", "номер", "№", "п/п")):
+            has_qty = (cols.get("qty") is not None and cell(cols["qty"]) is not None and str(cell(cols["qty"])).strip() != "")
+            has_unit = (cols.get("unit") is not None and cell(cols["unit"]) is not None and str(cell(cols["unit"])).strip() != "")
+            if raw_num_str and not _is_noise_row_number(raw_num_str, has_qty, has_unit):
                 _PARSE_WARNINGS.append(dict(
                     doc=doc, sheet=ws.title, row=row_idx,
                     text=_s(cell(cols.get("name"))),

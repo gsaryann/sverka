@@ -16,6 +16,65 @@ import match
 DATA_DIR = Path("data")
 
 class TestCoreAndParsers(unittest.TestCase):
+    def test_parser_warnings_ignore_resource_markers(self):
+        """Задача 1: для маркеров ресурсов без количества и единицы _is_noise_row_number(...) is True; для п.5, №7, 1,5 с количеством False."""
+        from parsers import _is_noise_row_number
+        for marker in ["Н", "П,Н", "Н,П", "М", "Э"]:
+            self.assertTrue(_is_noise_row_number(marker, has_qty=False, has_unit=False), f"Маркер {marker} должен быть шумом")
+        for num_str in ["п.5", "№7", "1,5"]:
+            self.assertFalse(_is_noise_row_number(num_str, has_qty=True, has_unit=True), f"Номер {num_str} не должен быть шумом")
+
+    def test_parser_warns_on_duplicate_numbers(self):
+        """Задача 1 (п. 4.7): парсер должен предупреждать о повторных номерах позиций."""
+        import tempfile
+        import openpyxl
+        from parsers import parse_vor, get_parse_warnings
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "ВОР"
+        # Заголовки
+        ws.append(["№ п/п", "Наименование работ", "Ед. изм.", "Количество"])
+        ws.append(["1", "Демонтаж плинтусов", "м", "50.0"])
+        ws.append(["1", "Монтаж плинтусов (повторный номер)", "м", "50.0"])
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            wb.save(tmp_path)
+            get_parse_warnings()
+            items = parse_vor(tmp_path)
+            warnings = get_parse_warnings()
+            dup_warnings = [w for w in warnings if "Повторный номер позиции" in w.get("reason", "")]
+            self.assertGreaterEqual(len(dup_warnings), 1, "Должно быть предупреждение о дубликате номера")
+            self.assertIn("1", dup_warnings[0]["reason"])
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def test_real_pairs_parser_warnings(self):
+        """Задача 1: проверка числа позиций и порогов предупреждений на всех 7 реальных парах."""
+        from parsers import parse_vor, parse_lsr, get_parse_warnings
+        pairs = [
+            ("ВОР.xlsx", "ЛСР.xlsx", 86, 30),
+            ("ВОР освещение КОРР.xlsx", "ЛСР освещение КОРР.xlsx", 137, 35),
+            ("ВОР (1 этаж кабинеты).xlsx", "ЛСР (1 этаж кабинеты).xlsx", 534, 55),
+            ("ВОР ремонт и утеплитель.xlsx", "ЛСР по Методике 2020 (РИМ).xlsx", 88, 5),
+            ("ВЕДОМОСТЬ ОБЪЕМОВ РАБОТ.xlsx", "ЛОКАЛЬНЫЙ СМЕТНЫЙ РАСЧЕТ.xlsx", 83, 10),
+            ("Приложение №2.3.1 Ведомость объемов работ №2.xlsx", "Приложение №2.3 Локальный сметный расчет №2.xlsx", 23, 5),
+            ("02_01_01_чайная_Анастасьевка__Текущий_ремонт___Дефектная_ведомость_по_смете_2.xlsx", "02_01_01_чайная_Анастасьевка__Текущий_ремонт___ЛСР_по_Методике_2020__РИМ__2.xlsx", 371, 25),
+        ]
+        for vor_fn, lsr_fn, exp_count, max_warn in pairs:
+            vp = DATA_DIR / vor_fn
+            lp = DATA_DIR / lsr_fn
+            if vp.exists() and lp.exists():
+                get_parse_warnings()
+                vor = parse_vor(str(vp))
+                lsr = parse_lsr(str(lp))
+                warnings = get_parse_warnings()
+                self.assertEqual(len(vor), exp_count, f"Неверное число позиций ВОР в {vor_fn}")
+                self.assertLessEqual(len(warnings), max_warn, f"Слишком много предупреждений ({len(warnings)}) для {vor_fn}")
+
     def test_llm_resolver_imports_without_openai(self):
         """Задача 2: без openai импорт llm_resolver не должен вызывать SystemExit, а вызов YandexClient бросает RuntimeError."""
         import sys
