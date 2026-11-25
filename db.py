@@ -40,7 +40,7 @@ if not DB_PASS:
 
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
-DB_NAME = os.getenv("DB_NAME", "sverka_db")
+DB_NAME = os.getenv("TEST_DB_NAME") or os.getenv("DB_NAME", "sverka_db")
 
 
 def get_pg_connection():

@@ -32,6 +32,7 @@ import zipfile
 import secrets
 import time
 import math
+from collections import OrderedDict
 from functools import wraps
 from flask import Flask, request, jsonify, Response, stream_with_context, session, redirect
 def is_production() -> bool:
@@ -56,71 +57,7 @@ logger = logging.getLogger(__name__)
 
 from parsers import parse_vor, parse_lsr, get_parse_warnings, Item
 from risk import calculate_item_risk
-
-
-def _document_kind(path: Path) -> str | None:
-    """Classify an uploaded workbook from its title and table headers."""
-    from openpyxl import load_workbook
-    wb = load_workbook(path, read_only=True, data_only=True)
-    try:
-        text = []
-        for ws in wb.worksheets:
-            for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 45), values_only=True):
-                text.extend(str(v).lower().replace('ё', 'е') for v in row if v is not None)
-    finally:
-        wb.close()
-    blob = ' '.join(text)
-    cleaned_blob = re.sub(r'№\s*(?:в\s*)?лср', '', blob)
-
-    vor_score = 0
-    if re.search(r'ведомост\w* объем\w* работ', blob): vor_score += 2
-    if re.search(r'дефектн\w* ведомост\w*', blob): vor_score += 2
-    if re.search(r'формула расчета объемов работ', blob): vor_score += 2
-    if re.search(r'\bвор\b', blob): vor_score += 1
-
-    lsr_score = 0
-    if re.search(r'локальн\w* смет\w* расчет', blob): lsr_score += 2
-    if re.search(r'локальная смета', blob): lsr_score += 2
-    if re.search(r'сметная стоимость', blob): lsr_score += 2
-    if re.search(r'составлен\w* в ценах', blob): lsr_score += 1
-    if re.search(r'\bлср\b', cleaned_blob): lsr_score += 1
-
-    if vor_score == lsr_score:
-        return None
-    return 'vor' if vor_score > lsr_score else 'lsr'
-
-
-def _resolve_preset_paths(preset: str | None) -> tuple[Path, Path] | None:
-    """Определяет пути к файлам ВОР и ЛСР для эталонных демонстрационных комплектов."""
-    if not preset:
-        return None
-    p = str(preset).strip().lower()
-    if p in ('set1', 'palace', 'дворец'):
-        return DATA_DIR / "ВОР.xlsx", DATA_DIR / "ЛСР.xlsx"
-    elif p in ('crystal', 'lighting', 'кристалл', 'освещение'):
-        return DATA_DIR / "ВОР освещение КОРР.xlsx", DATA_DIR / "ЛСР освещение КОРР.xlsx"
-    elif p in ('kaluga', 'cabinets', 'калуга', 'кабинеты'):
-        return DATA_DIR / "ВОР (1 этаж кабинеты).xlsx", DATA_DIR / "ЛСР (1 этаж кабинеты).xlsx"
-    elif p in ('set2', 'room163', 'пом163'):
-        return DATA_DIR / "ВЕДОМОСТЬ ОБЪЕМОВ РАБОТ.xlsx", DATA_DIR / "ЛОКАЛЬНЫЙ СМЕТНЫЙ РАСЧЕТ.xlsx"
-    elif p in ('tea', 'anastasyevka', 'анастасьевка', 'чайная'):
-        return (
-            DATA_DIR / "02_01_01_чайная_Анастасьевка__Текущий_ремонт___Дефектная_ведомость_по_смете_2.xlsx",
-            DATA_DIR / "02_01_01_чайная_Анастасьевка__Текущий_ремонт___ЛСР_по_Методике_2020__РИМ__2.xlsx"
-        )
-    return None
-
-
-def _validate_document_pair(vor_path: Path, lsr_path: Path) -> str | None:
-    if hashlib.sha256(vor_path.read_bytes()).digest() == hashlib.sha256(lsr_path.read_bytes()).digest():
-        return 'Загружен один и тот же файл в оба поля. Выберите отдельные ВОР и ЛСР.'
-    kind_v, kind_l = _document_kind(vor_path), _document_kind(lsr_path)
-    if kind_v == kind_l and kind_v in ('vor', 'lsr'):
-        label = 'ВОР' if kind_v == 'vor' else 'ЛСР'
-        return f'В оба поля загружены документы типа {label}. Для сверки нужны одна ВОР и одна ЛСР.'
-    if kind_v == 'lsr' and kind_l == 'vor':
-        return 'Файлы, похоже, перепутаны: в поле ВОР загружена ЛСР, а в поле ЛСР — ВОР. Поменяйте их местами и запустите сверку снова.'
-    return None
+from doc_validation import _document_kind, _validate_document_pair, _resolve_preset_paths
 
 
 def format_parsing_error(e: Exception) -> tuple[dict, int]:
@@ -173,6 +110,13 @@ def format_parsing_error(e: Exception) -> tuple[dict, int]:
         'error_message': "Произошла непредвиденная ошибка при обработке сметного документа.",
         'error_hint': "Проверьте корректность загруженных файлов или обратитесь к администратору с указанием кода ошибки."
     }, 500
+
+
+def error_response(public_message: str = "Внутренняя ошибка сервера", status: int = 500) -> tuple[Response, int]:
+    """Формирует безопасный ответ об ошибке с уникальным error_id без раскрытия деталей исключений."""
+    err_id = secrets.token_hex(4)
+    logger.exception("Error [%s]: %s", err_id, public_message)
+    return jsonify({"error": public_message, "error_id": err_id}), status
 import match
 import baseline_legacy
 import perturb
@@ -219,6 +163,9 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 if is_production():
     app.config["SESSION_COOKIE_SECURE"] = True
 
+# Максимальное допустимое число позиций в запросах
+MAX_ITEMS: int = 10000
+
 
 # Декораторы контроля доступа и ролей
 def login_required(f):
@@ -241,7 +188,10 @@ def role_required(*roles):
             db_sess = SessionLocal()
             try:
                 user = db_sess.query(User).filter_by(id=user_id).first()
-                if not user or user.role not in roles:
+                if not user:
+                    session.clear()
+                    return jsonify({'error': 'Необходима авторизация', 'code': 'UNAUTHORIZED'}), 401
+                if user.role not in roles:
                     return jsonify({'error': 'Недостаточно прав для выполнения операции', 'code': 'FORBIDDEN'}), 403
             finally:
                 db_sess.close()
@@ -296,29 +246,39 @@ DATA_DIR = ROOT_DIR / "data"
 RESULTS_DIR = ROOT_DIR / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Потокобезопасное хранение результатов сверки по пользователям (вместо глобальных списков)
+# Потокобезопасное хранение результатов сверки по пользователям (LRU-кэш на 20 пользователей)
+MAX_CACHED_USERS = 20
 _user_results_lock = threading.Lock()
-_USER_RESULTS: Dict[str, Dict[str, Any]] = {}
+_USER_RESULTS: OrderedDict[str, Dict[str, Any]] = OrderedDict()
 
 def set_user_results(user_id: Any, rows: List[Dict[str, Any]]) -> None:
+    uid = str(user_id)
     with _user_results_lock:
-        _USER_RESULTS[str(user_id)] = {
+        if uid in _USER_RESULTS:
+            _USER_RESULTS.move_to_end(uid)
+        _USER_RESULTS[uid] = {
             'last': copy.deepcopy(rows),
             'orig': copy.deepcopy(rows)
         }
+        if len(_USER_RESULTS) > MAX_CACHED_USERS:
+            _USER_RESULTS.popitem(last=False)
 
 def get_user_results(user_id: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    uid = str(user_id)
     with _user_results_lock:
-        res = _USER_RESULTS.get(str(user_id))
+        res = _USER_RESULTS.get(uid)
         if not res:
             return [], []
+        _USER_RESULTS.move_to_end(uid)
         return res['last'], res['orig']
 
 def update_user_row(user_id: Any, idx: int, action: str) -> Optional[Dict[str, Any]]:
+    uid = str(user_id)
     with _user_results_lock:
-        res = _USER_RESULTS.get(str(user_id))
+        res = _USER_RESULTS.get(uid)
         if not res or not (0 <= idx < len(res['last'])):
             return None
+        _USER_RESULTS.move_to_end(uid)
         row = res['last'][idx]
         orig = res['orig'][idx]
         if action == 'yes':
@@ -476,7 +436,6 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
 @app.route('/api/compare', methods=['POST'])
 @login_required
 def api_compare():
-    global LAST_RESULTS, ORIG_RESULTS
     user_id = session.get('user_id')
     mode = request.form.get('mode', 'algo')
     preset = request.form.get('preset')
@@ -583,8 +542,6 @@ def api_compare():
         llm_needed = mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only')
         rows, stats = format_rows(results, vor, lsr, llm_active=llm_needed)
 
-        LAST_RESULTS = rows
-        ORIG_RESULTS = copy.deepcopy(rows)
         set_user_results(user_id, rows)
 
         if llm_stats:
@@ -610,7 +567,6 @@ def api_compare():
 @app.route('/api/compare_stream', methods=['POST'])
 @login_required
 def api_compare_stream():
-    global LAST_RESULTS, ORIG_RESULTS
     user_id = session.get('user_id')
     mode = request.form.get('mode', 'algo')
     preset = request.form.get('preset')
@@ -702,7 +658,6 @@ def api_compare_stream():
         return jsonify(resp), status
 
     def generate():
-        global LAST_RESULTS, ORIG_RESULTS
         try:
             stream_mode = mode
             if not is_compat and stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only'):
@@ -719,8 +674,6 @@ def api_compare_stream():
 
             llm_needed = (stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only')) and is_compat
             init_rows, init_stats = format_rows(results, vor, lsr, llm_active=llm_needed)
-            LAST_RESULTS = init_rows
-            ORIG_RESULTS = copy.deepcopy(init_rows)
             set_user_results(user_id, init_rows)
 
             ambig_count = sum(
@@ -785,8 +738,6 @@ def api_compare_stream():
                         if item is None:
                             break
                         if item.get('type') == 'done':
-                            LAST_RESULTS = item['rows']
-                            ORIG_RESULTS = copy.deepcopy(item['rows'])
                             set_user_results(user_id, item['rows'])
                         yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                     except queue.Empty:
@@ -795,8 +746,6 @@ def api_compare_stream():
                                 item = q.get_nowait()
                                 if item is not None:
                                     if item.get('type') == 'done':
-                                        LAST_RESULTS = item['rows']
-                                        ORIG_RESULTS = copy.deepcopy(item['rows'])
                                         set_user_results(user_id, item['rows'])
                                     yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                             break
@@ -805,7 +754,9 @@ def api_compare_stream():
                 yield f"data: {json.dumps({'type': 'done', 'rows': init_rows, 'stats': init_stats, 'warning': warning_msg}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            err_id = secrets.token_hex(4)
+            logger.exception("Stream error [%s]: %s", err_id, e)
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Внутренняя ошибка сервера при сопоставлении', 'error_id': err_id}, ensure_ascii=False)}\n\n"
         finally:
             for p in tmp_files_to_clean:
                 try:
@@ -956,7 +907,7 @@ def api_benchmark():
             'warnings': benchmark_warnings
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response("Ошибка при проведении бенчмарка", 500)
 
 
 @app.route('/api/download_csv')
@@ -1268,8 +1219,8 @@ def api_export_discrepancy_act():
         title = data.get('title') or title
         user_name = data.get('user_name') or user_name
         if req_items is not None:
-            if not isinstance(req_items, list) or len(req_items) > 10000:
-                return jsonify({"error": "Некорректный формат списка позиций (максимум 10 000 позиций)"}), 400
+            if not isinstance(req_items, list) or len(req_items) > MAX_ITEMS:
+                return jsonify({"error": f"Некорректный формат списка позиций (максимум {MAX_ITEMS} позиций)"}), 400
             for it in req_items:
                 if not isinstance(it, dict):
                     return jsonify({"error": "Элементы списка позиций должны быть объектами"}), 400
@@ -1282,14 +1233,17 @@ def api_export_discrepancy_act():
     if not items:
         return jsonify({"error": "Нет данных для формирования Акта разногласий"}), 400
 
-    if user_id:
-        db = SessionLocal()
+    if user_id and SessionLocal:
         try:
-            u = db.query(User).filter(User.id == user_id).first()
-            if u and u.full_name:
-                user_name = u.full_name
-        finally:
-            db.close()
+            db = SessionLocal()
+            try:
+                u = db.query(User).filter(User.id == user_id).first()
+                if u and u.full_name:
+                    user_name = u.full_name
+            finally:
+                db.close()
+        except Exception:
+            pass
 
     excel_buf = generate_discrepancy_act_excel(items, title=title, user_name=user_name)
     from urllib.parse import quote
@@ -1369,6 +1323,7 @@ def api_login():
     try:
         user = db_sess.query(User).filter_by(email=email).first()
         if not user or not user.check_password(password):
+            session.clear()
             return jsonify({'error': 'Неверный email или пароль'}), 401
 
         session.clear()
@@ -1457,11 +1412,25 @@ def api_project_save():
     title = data.get('title', 'Новая сверка')
     object_name = data.get('object_name', title)
     items_data = data.get('items', [])
+    if not isinstance(items_data, list) or len(items_data) > MAX_ITEMS:
+        return jsonify({'error': f'Некорректный формат списка позиций (максимум {MAX_ITEMS} позиций)'}), 400
+    for it in items_data:
+        if not isinstance(it, dict):
+            return jsonify({'error': 'Элементы списка позиций должны быть объектами'}), 400
+
     vor_fn = data.get('vor_filename')
     lsr_fn = data.get('lsr_filename')
-    total_pos = int(data.get('total_positions', len(items_data)))
-    matched_cnt = int(data.get('matched_count', 0))
-    match_rate = float(data.get('match_rate', round(matched_cnt / total_pos * 100, 1) if total_pos else 0.0))
+    try:
+        total_pos = int(data.get('total_positions', len(items_data)))
+        matched_cnt = int(data.get('matched_count', 0))
+        match_rate = float(data.get('match_rate', round(matched_cnt / total_pos * 100, 1) if total_pos else 0.0))
+        discrepancy_count = int(data.get('discrepancy_count', 0))
+        total_financial_risk = float(data.get('total_financial_risk', 0.0))
+
+        if any(math.isnan(x) or math.isinf(x) for x in (match_rate, total_financial_risk)):
+            return jsonify({'error': 'Числовые параметры не могут быть NaN или Infinity'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Некорректный формат числовых параметров проекта'}), 400
 
     db_sess = SessionLocal()
     try:
@@ -1484,8 +1453,8 @@ def api_project_save():
             lsr_filename=lsr_fn,
             total_positions=total_pos,
             matched_count=matched_cnt,
-            discrepancy_count=int(data.get('discrepancy_count', 0)),
-            total_financial_risk=float(data.get('total_financial_risk', 0.0))
+            discrepancy_count=discrepancy_count,
+            total_financial_risk=total_financial_risk
         )
         db_sess.add(project)
         db_sess.flush()
@@ -1626,6 +1595,13 @@ def open_browser():
 
 
 if __name__ == '__main__':
+    if init_db:
+        try:
+            init_db()
+            logger.info("База данных успешно инициализирована при запуске.")
+        except Exception as e:
+            logger.warning(f"Инициализация БД при запуске пропущена: {e}")
+
     port = 5000
     print(f"\nЗапуск СверкаСмет Web: http://127.0.0.1:{port}")
     print("Нажмите Ctrl+C для остановки сервера.\n")

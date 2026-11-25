@@ -11,16 +11,30 @@
 
 import unittest
 from decimal import Decimal
-from sqlalchemy.exc import IntegrityError
-from db import (
-    SessionLocal, User, AuditProject, Project,
-    Document, MatchResult, AuditItem, LLMLog, init_db
-)
+
+try:
+    import pytest
+    pytest.importorskip("sqlalchemy")
+except ImportError:
+    pass
+
+try:
+    from sqlalchemy.exc import IntegrityError
+    from db import (
+        SessionLocal, User, AuditProject, Project,
+        Document, MatchResult, AuditItem, LLMLog, init_db
+    )
+    HAS_DB = True
+except (ImportError, ModuleNotFoundError):
+    HAS_DB = False
+    SessionLocal = User = AuditProject = Project = Document = MatchResult = AuditItem = LLMLog = init_db = None
 
 
 class TestAuthAndSecurity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not HAS_DB or SessionLocal is None:
+            raise unittest.SkipTest("SQLAlchemy или db недоступны: тесты БД пропущены.")
         try:
             from sqlalchemy import text
             sess = SessionLocal()
@@ -34,13 +48,19 @@ class TestAuthAndSecurity(unittest.TestCase):
         self.session = SessionLocal()
 
     def tearDown(self):
-        # Очистка тестовых записей после каждого теста в правильном порядке
+        # 5.1: Очистка строго собственных тестовых записей без стирания рабочей БД
         self.session.rollback()
-        self.session.query(LLMLog).delete()
-        self.session.query(Document).delete()
-        self.session.query(MatchResult).delete()
-        self.session.query(AuditProject).delete()
-        self.session.query(User).filter(User.email.ilike("test_%@sverkasmet.ru")).delete()
+        test_users = self.session.query(User).filter(User.email.ilike("test_%@sverkasmet.ru")).all()
+        test_uids = [u.id for u in test_users]
+        if test_uids:
+            test_projs = self.session.query(AuditProject).filter(AuditProject.user_id.in_(test_uids)).all()
+            test_pids = [p.id for p in test_projs]
+            if test_pids:
+                self.session.query(LLMLog).filter(LLMLog.project_id.in_(test_pids)).delete(synchronize_session=False)
+                self.session.query(Document).filter(Document.project_id.in_(test_pids)).delete(synchronize_session=False)
+                self.session.query(MatchResult).filter(MatchResult.project_id.in_(test_pids)).delete(synchronize_session=False)
+                self.session.query(AuditProject).filter(AuditProject.id.in_(test_pids)).delete(synchronize_session=False)
+            self.session.query(User).filter(User.id.in_(test_uids)).delete(synchronize_session=False)
         self.session.commit()
         self.session.close()
 

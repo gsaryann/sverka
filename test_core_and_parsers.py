@@ -13,9 +13,96 @@ import units
 import llm_resolver
 import match
 
-DATA_DIR = Path("data")
+ROOT_DIR = Path(__file__).resolve().parent
+DATA_DIR = ROOT_DIR / "data"
 
 class TestCoreAndParsers(unittest.TestCase):
+    def test_parser_warnings_ignore_resource_markers(self):
+        """Задача 1: для маркеров ресурсов без количества и единицы _is_noise_row_number(...) is True; для п.5, №7, 1,5 с количеством False."""
+        from parsers import _is_noise_row_number
+        for marker in ["Н", "П,Н", "Н,П", "М", "Э"]:
+            self.assertTrue(_is_noise_row_number(marker, has_qty=False, has_unit=False), f"Маркер {marker} должен быть шумом")
+        for num_str in ["п.5", "№7", "1,5"]:
+            self.assertFalse(_is_noise_row_number(num_str, has_qty=True, has_unit=True), f"Номер {num_str} не должен быть шумом")
+
+    def test_parser_warns_on_duplicate_numbers(self):
+        """Задача 1 (п. 4.7): парсер должен предупреждать о повторных номерах позиций."""
+        import tempfile
+        import openpyxl
+        from parsers import parse_vor, get_parse_warnings
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "ВОР"
+        # Заголовки
+        ws.append(["№ п/п", "Наименование работ", "Ед. изм.", "Количество"])
+        ws.append(["1", "Демонтаж плинтусов", "м", "50.0"])
+        ws.append(["1", "Монтаж плинтусов (повторный номер)", "м", "50.0"])
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            wb.save(tmp_path)
+            get_parse_warnings()
+            items = parse_vor(tmp_path)
+            warnings = get_parse_warnings()
+            dup_warnings = [w for w in warnings if "Повторный номер позиции" in w.get("reason", "")]
+            self.assertGreaterEqual(len(dup_warnings), 1, "Должно быть предупреждение о дубликате номера")
+            self.assertIn("1", dup_warnings[0]["reason"])
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def test_real_pairs_parser_warnings(self):
+        """Задача 1: проверка числа позиций и порогов предупреждений на всех 7 реальных парах."""
+        from parsers import parse_vor, parse_lsr, get_parse_warnings
+        pairs = [
+            ("ВОР.xlsx", "ЛСР.xlsx", 86, 30),
+            ("ВОР освещение КОРР.xlsx", "ЛСР освещение КОРР.xlsx", 137, 35),
+            ("ВОР (1 этаж кабинеты).xlsx", "ЛСР (1 этаж кабинеты).xlsx", 534, 55),
+            ("ВОР ремонт и утеплитель.xlsx", "ЛСР по Методике 2020 (РИМ).xlsx", 88, 5),
+            ("ВЕДОМОСТЬ ОБЪЕМОВ РАБОТ.xlsx", "ЛОКАЛЬНЫЙ СМЕТНЫЙ РАСЧЕТ.xlsx", 83, 10),
+            ("Приложение №2.3.1 Ведомость объемов работ №2.xlsx", "Приложение №2.3 Локальный сметный расчет №2.xlsx", 23, 5),
+            ("02_01_01_чайная_Анастасьевка__Текущий_ремонт___Дефектная_ведомость_по_смете_2.xlsx", "02_01_01_чайная_Анастасьевка__Текущий_ремонт___ЛСР_по_Методике_2020__РИМ__2.xlsx", 371, 25),
+        ]
+        for vor_fn, lsr_fn, exp_count, max_warn in pairs:
+            vp = DATA_DIR / vor_fn
+            lp = DATA_DIR / lsr_fn
+            if vp.exists() and lp.exists():
+                get_parse_warnings()
+                vor = parse_vor(str(vp))
+                lsr = parse_lsr(str(lp))
+                warnings = get_parse_warnings()
+                self.assertEqual(len(vor), exp_count, f"Неверное число позиций ВОР в {vor_fn}")
+                self.assertLessEqual(len(warnings), max_warn, f"Слишком много предупреждений ({len(warnings)}) для {vor_fn}")
+
+    def test_llm_resolver_imports_without_openai(self):
+        """Задача 2: без openai импорт llm_resolver не должен вызывать SystemExit, а вызов YandexClient бросает RuntimeError."""
+        import sys
+        import importlib
+        orig_openai = sys.modules.get('openai')
+        try:
+            sys.modules['openai'] = None  # блокирует импорт openai (ModuleNotFoundError / ImportError)
+            if 'llm_resolver' in sys.modules:
+                del sys.modules['llm_resolver']
+
+            # Должен импортироваться успешно, без SystemExit
+            mod = importlib.import_module('llm_resolver')
+            self.assertIsNotNone(mod)
+
+            # А вызов клиента должен давать RuntimeError
+            with self.assertRaises(RuntimeError) as ctx:
+                mod.YandexClient(api_key="fake", folder_id="fake")
+            self.assertIn("openai", str(ctx.exception).lower())
+        finally:
+            if orig_openai is not None:
+                sys.modules['openai'] = orig_openai
+            elif 'openai' in sys.modules:
+                del sys.modules['openai']
+            if 'llm_resolver' in sys.modules:
+                del sys.modules['llm_resolver']
+            importlib.import_module('llm_resolver')
+
     def test_perturb_resets_caches(self):
         """4.1: perturb.make_set должен сбрасывать name_norm и characteristics при замене имени."""
         item = Item(doc="LSR", row=1, num="1", ref="ГЭСН 01", name="Разработка грунта экскаватором 0.5 м3", unit="м3", qty=100.0)
@@ -104,6 +191,53 @@ class TestCoreAndParsers(unittest.TestCase):
                     status_counts.get(st_name, 0), exp_st_cnt,
                     f"Расхождение статуса {st_name} в паре {vor_fn} + {lsr_fn}: ожидалось {exp_st_cnt}, получено {status_counts.get(st_name, 0)}"
                 )
+
+    def test_metrics_conclusions_match_table(self):
+        """Задача 1 (Задание 3, 4): верификация соответствия раздела 4 таблицам отчёта."""
+        import re
+        metrics_dir = ROOT_DIR / "docs" / "metrics"
+        f1_files = sorted(metrics_dir.glob("f1_*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not f1_files:
+            self.skipTest("Файл отчета f1_*.md еще не сгенерирован.")
+
+        text = f1_files[0].read_text(encoding="utf-8")
+        self.assertIn("## 4. Аналитический вывод", text)
+        parts = text.split("## 4. Аналитический вывод")
+        tables_text = parts[0]
+        concl_text = parts[1]
+
+        # 1. Запрещённая субъективная формулировка (Задание 4)
+        self.assertNotIn(
+            "действительно содержат", concl_text,
+            "В разделе 4 недопустима субъективная формулировка 'действительно содержат'!"
+        )
+
+        # 2. Проверка отсутствия слова «лидер» при |ΔF1| < 1,0 п.п. (Задание 4)
+        for line in concl_text.splitlines():
+            if "лидер" in line.lower():
+                match_delta = re.search(r'([-+]?\d+\.\d+)\s*п\.п\.', line)
+                if match_delta:
+                    diff_val = abs(float(match_delta.group(1)))
+                    self.assertGreaterEqual(
+                        diff_val, 1.0,
+                        f"Слово 'лидер' недопустимо при незначимой разнице ({diff_val} < 1.0 п.п.) в строке: {line}"
+                    )
+
+        # 3. Все числа в разделе 4 есть в таблицах
+        floats = re.findall(r'\b0\.\d{4}\b', concl_text)
+        pcts = re.findall(r'\b\d+\.\d+%', concl_text)
+        pps = re.findall(r'[-+]?\d+\.\d+\s*п\.п\.', concl_text)
+        ratios = re.findall(r'\b\d+/\d+\b', concl_text)
+
+        all_numbers = floats + pcts + pps + ratios
+        self.assertGreater(len(all_numbers), 0, "В разделе выводов должны быть приведены числовые доказательства")
+
+        for num in all_numbers:
+            self.assertIn(
+                num, tables_text,
+                f"Число '{num}' из выводов отсутствует в таблицах отчёта {f1_files[0].name}!"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

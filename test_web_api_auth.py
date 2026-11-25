@@ -7,17 +7,30 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    import pytest
+    pytest.importorskip("sqlalchemy")
+except ImportError:
+    pass
+
 ROOT_DIR = Path(__file__).parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from web.web_app import app
-from db import init_db, SessionLocal, User, Project, AuditItem
+try:
+    from db import init_db, SessionLocal, User, Project, AuditItem
+    HAS_DB = True
+except (ImportError, ModuleNotFoundError):
+    HAS_DB = False
+    init_db = SessionLocal = User = Project = AuditItem = None
 
 
 class TestWebApiAuthAndProjects(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not HAS_DB or SessionLocal is None:
+            raise unittest.SkipTest("SQLAlchemy или db недоступны: тесты API авторизации пропущены.")
         try:
             from sqlalchemy import text
             sess = SessionLocal()
@@ -34,9 +47,17 @@ class TestWebApiAuthAndProjects(unittest.TestCase):
         self.session = SessionLocal()
 
     def tearDown(self):
-        self.session.query(AuditItem).delete()
-        self.session.query(Project).delete()
-        self.session.query(User).filter(User.email.like("api_test_%@sverkasmet.ru")).delete()
+        # 5.1: Очистка только собственных тестовых записей
+        self.session.rollback()
+        test_users = self.session.query(User).filter(User.email.like("api_test_%@sverkasmet.ru")).all()
+        test_uids = [u.id for u in test_users]
+        if test_uids:
+            test_projs = self.session.query(Project).filter(Project.user_id.in_(test_uids)).all()
+            test_pids = [p.id for p in test_projs]
+            if test_pids:
+                self.session.query(AuditItem).filter(AuditItem.project_id.in_(test_pids)).delete(synchronize_session=False)
+                self.session.query(Project).filter(Project.id.in_(test_pids)).delete(synchronize_session=False)
+            self.session.query(User).filter(User.id.in_(test_uids)).delete(synchronize_session=False)
         self.session.commit()
         self.session.close()
 
