@@ -6,9 +6,16 @@ import math
 import openpyxl
 from pathlib import Path
 from web.web_app import app, sanitize_formula, check_login_rate_limit, _login_attempts
-from db import SessionLocal, User, is_production
+try:
+    from db import SessionLocal, User, is_production
+    HAS_DB = True
+except (ImportError, ModuleNotFoundError):
+    HAS_DB = False
+    SessionLocal = User = is_production = None
 
 def is_db_available() -> bool:
+    if not HAS_DB or SessionLocal is None:
+        return False
     try:
         sess = SessionLocal()
         from sqlalchemy import text
@@ -23,6 +30,39 @@ class TestWebLayerSecurity(unittest.TestCase):
     def setUpClass(cls):
         app.config['TESTING'] = True
         cls.client = app.test_client()
+
+    def test_results_isolated_between_users(self):
+        """Задача 3 (п. 2.4): изоляция результатов между пользователями."""
+        from web.web_app import set_user_results
+
+        # Пользователь A сохраняет результаты
+        sample_row = {
+            "№ ВОР": "1", "Наименование ВОР": "Секретная позиция пользователя А",
+            "Ед. изм. ВОР": "м", "Объём ВОР": 10.0,
+            "№ ЛСР": "1", "Наименование ЛСР": "Секретная позиция ЛСР",
+            "Ед. изм. ЛСР": "м", "Объём ЛСР": 10.0,
+            "Верхний статус": "Совпало", "Детальный статус": "Совпало",
+            "Разница объёмов": 0.0, "Цена за единицу (руб.)": 100.0,
+            "Финансовый риск (руб.)": 0.0, "Статус решения сметчика": "Автоматически",
+            "Обоснование": "", "ИИ-арбитраж": "", "Коэффициент пересчета": 1.0,
+            "Уверенность": 1.0, "Сметная стоимость ЛСР (руб.)": 1000.0, "Раздел": "1"
+        }
+        set_user_results(1001, [sample_row])
+
+        client_b = app.test_client()
+        with client_b.session_transaction() as sess:
+            sess['user_id'] = 1002
+            sess['user_email'] = 'user_b@sverkasmet.ru'
+            sess['user_role'] = 'estimator'
+
+        # Пользователь B не видит данных A в CSV
+        resp_csv = client_b.get('/api/download_csv')
+        self.assertEqual(resp_csv.status_code, 400)
+        self.assertNotIn("Секретная позиция пользователя А", resp_csv.get_data(as_text=True))
+
+        # Пользователь B не может применить решение к строкам A
+        resp_act = client_b.post('/api/action_row', json={'index': 0, 'action': 'yes'})
+        self.assertEqual(resp_act.status_code, 400)
 
     def test_unauthenticated_access_blocked_401(self):
         """2.1: Маршруты API требуют обязательной авторизации (401)."""

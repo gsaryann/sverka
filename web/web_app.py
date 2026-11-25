@@ -32,6 +32,7 @@ import zipfile
 import secrets
 import time
 import math
+from collections import OrderedDict
 from functools import wraps
 from flask import Flask, request, jsonify, Response, stream_with_context, session, redirect
 def is_production() -> bool:
@@ -232,29 +233,39 @@ DATA_DIR = ROOT_DIR / "data"
 RESULTS_DIR = ROOT_DIR / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Потокобезопасное хранение результатов сверки по пользователям (вместо глобальных списков)
+# Потокобезопасное хранение результатов сверки по пользователям (LRU-кэш на 20 пользователей)
+MAX_CACHED_USERS = 20
 _user_results_lock = threading.Lock()
-_USER_RESULTS: Dict[str, Dict[str, Any]] = {}
+_USER_RESULTS: OrderedDict[str, Dict[str, Any]] = OrderedDict()
 
 def set_user_results(user_id: Any, rows: List[Dict[str, Any]]) -> None:
+    uid = str(user_id)
     with _user_results_lock:
-        _USER_RESULTS[str(user_id)] = {
+        if uid in _USER_RESULTS:
+            _USER_RESULTS.move_to_end(uid)
+        _USER_RESULTS[uid] = {
             'last': copy.deepcopy(rows),
             'orig': copy.deepcopy(rows)
         }
+        if len(_USER_RESULTS) > MAX_CACHED_USERS:
+            _USER_RESULTS.popitem(last=False)
 
 def get_user_results(user_id: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    uid = str(user_id)
     with _user_results_lock:
-        res = _USER_RESULTS.get(str(user_id))
+        res = _USER_RESULTS.get(uid)
         if not res:
             return [], []
+        _USER_RESULTS.move_to_end(uid)
         return res['last'], res['orig']
 
 def update_user_row(user_id: Any, idx: int, action: str) -> Optional[Dict[str, Any]]:
+    uid = str(user_id)
     with _user_results_lock:
-        res = _USER_RESULTS.get(str(user_id))
+        res = _USER_RESULTS.get(uid)
         if not res or not (0 <= idx < len(res['last'])):
             return None
+        _USER_RESULTS.move_to_end(uid)
         row = res['last'][idx]
         orig = res['orig'][idx]
         if action == 'yes':
@@ -412,7 +423,6 @@ def format_rows(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item],
 @app.route('/api/compare', methods=['POST'])
 @login_required
 def api_compare():
-    global LAST_RESULTS, ORIG_RESULTS
     user_id = session.get('user_id')
     mode = request.form.get('mode', 'algo')
     preset = request.form.get('preset')
@@ -519,8 +529,6 @@ def api_compare():
         llm_needed = mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only')
         rows, stats = format_rows(results, vor, lsr, llm_active=llm_needed)
 
-        LAST_RESULTS = rows
-        ORIG_RESULTS = copy.deepcopy(rows)
         set_user_results(user_id, rows)
 
         if llm_stats:
@@ -546,7 +554,6 @@ def api_compare():
 @app.route('/api/compare_stream', methods=['POST'])
 @login_required
 def api_compare_stream():
-    global LAST_RESULTS, ORIG_RESULTS
     user_id = session.get('user_id')
     mode = request.form.get('mode', 'algo')
     preset = request.form.get('preset')
@@ -638,7 +645,6 @@ def api_compare_stream():
         return jsonify(resp), status
 
     def generate():
-        global LAST_RESULTS, ORIG_RESULTS
         try:
             stream_mode = mode
             if not is_compat and stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only'):
@@ -655,8 +661,6 @@ def api_compare_stream():
 
             llm_needed = (stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only')) and is_compat
             init_rows, init_stats = format_rows(results, vor, lsr, llm_active=llm_needed)
-            LAST_RESULTS = init_rows
-            ORIG_RESULTS = copy.deepcopy(init_rows)
             set_user_results(user_id, init_rows)
 
             ambig_count = sum(
@@ -721,8 +725,6 @@ def api_compare_stream():
                         if item is None:
                             break
                         if item.get('type') == 'done':
-                            LAST_RESULTS = item['rows']
-                            ORIG_RESULTS = copy.deepcopy(item['rows'])
                             set_user_results(user_id, item['rows'])
                         yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                     except queue.Empty:
@@ -731,8 +733,6 @@ def api_compare_stream():
                                 item = q.get_nowait()
                                 if item is not None:
                                     if item.get('type') == 'done':
-                                        LAST_RESULTS = item['rows']
-                                        ORIG_RESULTS = copy.deepcopy(item['rows'])
                                         set_user_results(user_id, item['rows'])
                                     yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                             break
