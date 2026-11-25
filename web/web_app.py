@@ -440,6 +440,18 @@ def api_compare():
     mode = request.form.get('mode', 'algo')
     preset = request.form.get('preset')
 
+    if mode == 'hybrid_local':
+        from llm_resolver import check_local_llm
+        ok, msg = check_local_llm()
+        if not ok:
+            return error_response(msg, 503)
+        try:
+            import openai as _openai
+        except (ImportError, ModuleNotFoundError):
+            _openai = None
+        if _openai is None or not hasattr(_openai, "OpenAI"):
+            return error_response("Не установлена библиотека openai", 503)
+
     if preset:
         # 2.1: Пресеты только для роли lead на сервере
         db_sess = SessionLocal()
@@ -512,14 +524,20 @@ def api_compare():
                 f"{compat_msg} Обращение к ИИ-арбитру заблокировано: "
                 "предотвращен нецелевой расход бюджета токенов на несогласованные документы."
             )
-            if mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only'):
+            if mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only', 'hybrid_local'):
                 mode = 'algo'
+
+        if mode == 'hybrid_local':
+            from llm_resolver import check_local_llm
+            ok, msg = check_local_llm()
+            if not ok:
+                return error_response(msg, 503)
 
         llm_stats = None
 
         if mode == 'model_only':
-            from llm_resolver import YandexClient, resolve, model_only_results
-            client = YandexClient()
+            from llm_resolver import make_client, resolve, model_only_results
+            client = make_client("yandex")
             cache_path = str(RESULTS_DIR / "llm_cache.json")
             init_res = model_only_results(vor, lsr)
             results, llm_stats = resolve(init_res, vor, lsr, client, mode='model_only', cache_path=cache_path, verbose=False)
@@ -528,18 +546,23 @@ def api_compare():
         else:
             results = match.match(vor, lsr, thr=thr, min_text_threshold=0.20)
 
-            if mode in ('hybrid', 'arbitration'):
-                from llm_resolver import YandexClient, resolve
-                client = YandexClient()
+            if mode in ('hybrid', 'arbitration', 'hybrid_local'):
+                from llm_resolver import make_client, resolve
+                try:
+                    client = make_client("local" if mode == "hybrid_local" else "yandex")
+                except RuntimeError as e:
+                    if mode == "hybrid_local" and "openai" in str(e).lower():
+                        return error_response("Не установлена библиотека openai", 503)
+                    raise
                 cache_path = str(RESULTS_DIR / "llm_cache.json")
                 results, llm_stats = resolve(results, vor, lsr, client, mode='arbitration', cache_path=cache_path, verbose=False)
             elif mode == 'hybrid_weak':
-                from llm_resolver import YandexClient, resolve
-                client = YandexClient()
+                from llm_resolver import make_client, resolve
+                client = make_client("yandex")
                 cache_path = str(RESULTS_DIR / "llm_cache.json")
                 results, llm_stats = resolve(results, vor, lsr, client, mode='weak_only', cache_path=cache_path, verbose=False)
 
-        llm_needed = mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only')
+        llm_needed = mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only', 'hybrid_local')
         rows, stats = format_rows(results, vor, lsr, llm_active=llm_needed)
 
         set_user_results(user_id, rows)
@@ -570,6 +593,18 @@ def api_compare_stream():
     user_id = session.get('user_id')
     mode = request.form.get('mode', 'algo')
     preset = request.form.get('preset')
+
+    if mode == 'hybrid_local':
+        from llm_resolver import check_local_llm
+        ok, msg = check_local_llm()
+        if not ok:
+            return error_response(msg, 503)
+        try:
+            import openai as _openai
+        except (ImportError, ModuleNotFoundError):
+            _openai = None
+        if _openai is None or not hasattr(_openai, "OpenAI"):
+            return error_response("Не установлена библиотека openai", 503)
 
     if preset:
         # 2.1: Пресеты только для роли lead на сервере
@@ -660,7 +695,7 @@ def api_compare_stream():
     def generate():
         try:
             stream_mode = mode
-            if not is_compat and stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only'):
+            if not is_compat and stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only', 'hybrid_local'):
                 stream_mode = 'algo'
 
             # 1. Мгновенный расчет SmartMatcher (0.05 сек)
@@ -672,7 +707,7 @@ def api_compare_stream():
             else:
                 results = match.match(vor, lsr, thr=thr, min_text_threshold=0.20)
 
-            llm_needed = (stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only')) and is_compat
+            llm_needed = (stream_mode in ('hybrid', 'arbitration', 'hybrid_weak', 'model_only', 'hybrid_local')) and is_compat
             init_rows, init_stats = format_rows(results, vor, lsr, llm_active=llm_needed)
             set_user_results(user_id, init_rows)
 
@@ -686,10 +721,10 @@ def api_compare_stream():
             # Передаем первичное состояние сопоставления клиенту мгновенно
             yield f"data: {json.dumps({'type': 'init', 'stats': init_stats, 'rows': init_rows, 'ambig_count': ambig_count, 'mode': stream_mode, 'needs_llm': bool(llm_needed and ambig_count > 0), 'warning': warning_msg, 'parse_warnings': parse_warnings}, ensure_ascii=False)}\n\n"
 
-            # 2. Потоковый арбитраж спорных позиций Алисой
+            # 2. Потоковый арбитраж спорных позиций
             if llm_needed and ambig_count > 0:
-                from llm_resolver import YandexClient, resolve
-                client = YandexClient()
+                from llm_resolver import make_client, resolve
+                client = make_client("local" if stream_mode == "hybrid_local" else "yandex")
                 cache_path = str(RESULTS_DIR / "llm_cache.json")
                 m_mode = 'model_only' if stream_mode == 'model_only' else ('weak_only' if stream_mode == 'hybrid_weak' else 'arbitration')
 
@@ -732,6 +767,7 @@ def api_compare_stream():
                 t = threading.Thread(target=worker, daemon=True)
                 t.start()
 
+                last_ping = time.monotonic()
                 while True:
                     try:
                         item = q.get(timeout=0.25)
@@ -749,7 +785,10 @@ def api_compare_stream():
                                         set_user_results(user_id, item['rows'])
                                     yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                             break
-                        yield ": ping\n\n"
+                        now = time.monotonic()
+                        if now - last_ping >= 10.0:
+                            last_ping = now
+                            yield ": ping\n\n"
             else:
                 yield f"data: {json.dumps({'type': 'done', 'rows': init_rows, 'stats': init_stats, 'warning': warning_msg}, ensure_ascii=False)}\n\n"
 
@@ -872,9 +911,9 @@ def api_benchmark():
 
         # 3. SmartMatcher + Алиса (Двухуровневый арбитраж коллизий)
         try:
-            from llm_resolver import YandexClient, resolve
+            from llm_resolver import make_client, resolve
             cache_path = str(RESULTS_DIR / "llm_cache.json")
-            client = YandexClient()
+            client = make_client("yandex")
             preds_llm, st_llm = resolve(
                 copy.deepcopy(preds_smart), pv, lsr, client,
                 mode="arbitration", cache_path=cache_path, verbose=False

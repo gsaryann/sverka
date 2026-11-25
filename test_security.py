@@ -327,5 +327,151 @@ class TestWebLayerSecurity(unittest.TestCase):
                 self.assertNotIn('custom_flag', sess)
 
 
+    def test_compare_hybrid_local_unreachable_returns_clear_error(self):
+        """Задача 2: при выключенной Ollama режим hybrid_local возвращает 503 и понятную ошибку."""
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess['user_id'] = 9999
+            sess['user_email'] = 'test_local@sverkasmet.ru'
+            sess['user_role'] = 'user'
+
+        vor_path = Path(__file__).parent / "data" / "ВОР.xlsx"
+        lsr_path = Path(__file__).parent / "data" / "ЛСР.xlsx"
+        with patch.dict(os.environ, {"LOCAL_LLM_BASE_URL": "http://127.0.0.1:59999/v1"}), \
+             open(vor_path, "rb") as f_v, open(lsr_path, "rb") as f_l:
+            data = {
+                "vor": (f_v, "ВОР.xlsx"),
+                "lsr": (f_l, "ЛСР.xlsx"),
+                "mode": "hybrid_local",
+                "threshold": "0.55"
+            }
+            resp = client.post("/api/compare", data=data, content_type="multipart/form-data")
+            self.assertEqual(resp.status_code, 503)
+            res_json = resp.get_json()
+            self.assertIn("error", res_json)
+            self.assertIn("error_id", res_json)
+            self.assertIn("ollama", res_json["error"].lower())
+
+    def test_compare_hybrid_local_uses_local_client(self):
+        """Задача 2: режим hybrid_local использует LocalClient, provider=='local', cost_rub==0, без YandexClient."""
+        import pytest
+        openai_mod = pytest.importorskip("openai")
+        if not hasattr(openai_mod, "OpenAI"):
+            raise unittest.SkipTest("Требуется установленная библиотека openai")
+        import http.server
+        import threading
+        from test_llm_resolver import _FakeOllamaHandler
+
+        httpd = http.server.HTTPServer(("127.0.0.1", 0), _FakeOllamaHandler)
+        port = httpd.server_port
+        t = threading.Thread(target=httpd.serve_forever, daemon=True)
+        t.start()
+        try:
+            client = app.test_client()
+            with client.session_transaction() as sess:
+                sess['user_id'] = 9999
+                sess['user_email'] = 'test_local@sverkasmet.ru'
+                sess['user_role'] = 'user'
+
+            vor_path = Path(__file__).parent / "data" / "ВОР.xlsx"
+            lsr_path = Path(__file__).parent / "data" / "ЛСР.xlsx"
+            with patch.dict(os.environ, {
+                "LOCAL_LLM_BASE_URL": f"http://127.0.0.1:{port}/v1",
+                "LOCAL_LLM_MODEL": "qwen2.5:7b-instruct"
+            }), patch("llm_resolver.YandexClient") as mock_yandex, \
+                 open(vor_path, "rb") as f_v, open(lsr_path, "rb") as f_l:
+                data = {
+                    "vor": (f_v, "ВОР.xlsx"),
+                    "lsr": (f_l, "ЛСР.xlsx"),
+                    "mode": "hybrid_local",
+                    "threshold": "0.55"
+                }
+                resp = client.post("/api/compare", data=data, content_type="multipart/form-data")
+                self.assertEqual(resp.status_code, 200)
+                res_json = resp.get_json()
+                self.assertIn("stats", res_json)
+                llm_stats = res_json["stats"].get("llm_stats")
+                self.assertIsNotNone(llm_stats)
+                self.assertEqual(llm_stats.get("provider"), "local")
+                self.assertEqual(llm_stats.get("cost_rub"), 0)
+                # Убеждаемся, что YandexClient не создавался и внешних запросов не было
+                mock_yandex.assert_not_called()
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_compare_hybrid_local_without_openai_returns_503(self):
+        """При отсутствии пакета openai режим hybrid_local возвращает 503 в формате error_response."""
+        import sys
+        import http.server
+        import threading
+        from test_llm_resolver import _FakeOllamaHandler
+
+        httpd = http.server.HTTPServer(("127.0.0.1", 0), _FakeOllamaHandler)
+        port = httpd.server_port
+        t = threading.Thread(target=httpd.serve_forever, daemon=True)
+        t.start()
+        try:
+            client = app.test_client()
+            with client.session_transaction() as sess:
+                sess['user_id'] = 9999
+                sess['user_email'] = 'test_local@sverkasmet.ru'
+                sess['user_role'] = 'user'
+
+            vor_path = Path(__file__).parent / "data" / "ВОР.xlsx"
+            lsr_path = Path(__file__).parent / "data" / "ЛСР.xlsx"
+            with patch.dict(os.environ, {
+                "LOCAL_LLM_BASE_URL": f"http://127.0.0.1:{port}/v1",
+                "LOCAL_LLM_MODEL": "qwen2.5:7b-instruct"
+            }), patch.dict(sys.modules, {"openai": None}), \
+                 open(vor_path, "rb") as f_v, open(lsr_path, "rb") as f_l:
+                data = {
+                    "vor": (f_v, "ВОР.xlsx"),
+                    "lsr": (f_l, "ЛСР.xlsx"),
+                    "mode": "hybrid_local",
+                    "threshold": "0.55"
+                }
+                resp = client.post("/api/compare", data=data, content_type="multipart/form-data")
+                self.assertEqual(resp.status_code, 503)
+                res_json = resp.get_json()
+                self.assertIn("error", res_json)
+                self.assertIn("error_id", res_json)
+                self.assertIn("не установлена библиотека openai", res_json["error"].lower())
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_compare_stream_ping_interval(self):
+        """В /api/compare_stream комментарий : ping отправляется не чаще раза в 10 секунд (< 3 за 1 секунду)."""
+        import time
+
+        def slow_resolve(results, vor, lsr, cli, **kwargs):
+            time.sleep(1.1)
+            return results, {"provider": "yandex", "cost_rub": 0}
+
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess['user_id'] = 9999
+            sess['user_email'] = 'test_ping@sverkasmet.ru'
+            sess['user_role'] = 'user'
+
+        vor_path = Path(__file__).parent / "data" / "ВОР.xlsx"
+        lsr_path = Path(__file__).parent / "data" / "ЛСР.xlsx"
+        with patch("llm_resolver.make_client", return_value=object()), \
+             patch("llm_resolver.resolve", side_effect=slow_resolve), \
+             open(vor_path, "rb") as f_v, open(lsr_path, "rb") as f_l:
+            data = {
+                "vor": (f_v, "ВОР.xlsx"),
+                "lsr": (f_l, "ЛСР.xlsx"),
+                "mode": "hybrid",
+                "threshold": "0.55"
+            }
+            resp = client.post("/api/compare_stream", data=data, content_type="multipart/form-data")
+            self.assertEqual(resp.status_code, 200)
+            body = resp.get_data(as_text=True)
+            ping_count = body.count(": ping")
+            self.assertLess(ping_count, 3)
+
+
 if __name__ == "__main__":
     unittest.main()

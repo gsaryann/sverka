@@ -3,6 +3,18 @@
   "mock_confirm_all": {"type": "mock", "mode": "confirm_all"},
   "mock_reject_all":  {"type": "mock", "mode": "reject_all"},
 
+  "local_ollama": {
+    "type": "openai",
+    "base_url": "http://localhost:11434/v1",
+    "base_url_env": "LOCAL_LLM_BASE_URL",
+    "model": "qwen2.5:7b-instruct",
+    "model_env": "LOCAL_LLM_MODEL",
+    "api_key": "ollama",
+    "price_in": 0,
+    "price_out": 0,
+    "_note": "Локальная модель через Ollama (OpenAI-совместимый эндпоинт). Без передачи данных во внешние сервисы."
+  },
+
   "yandex_flash": {"type": "openai", "base_url": "https://ai.api.cloud.yandex.net/v1",
     "api_key_env": "YANDEX_API_KEY", "folder_env": "YANDEX_FOLDER_ID",
     "model": "gpt://{folder}/aliceai-llm-flash/latest", "price_in": 100, "price_out": 200},

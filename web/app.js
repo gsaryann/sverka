@@ -1418,6 +1418,15 @@ if (bHelp) bHelp.onclick = () => startOnboardingTour(true);
 
 $('#tour-overlay')?.addEventListener('click', stopTour);
 
+// Режим сопоставления (подсказка для локального режима Ollama)
+const wModeEl = $('#w-mode');
+const ollamaHintEl = $('#ollama-hint');
+if (wModeEl && ollamaHintEl) {
+  wModeEl.addEventListener('change', () => {
+    ollamaHintEl.style.display = wModeEl.value === 'hybrid_local' ? 'block' : 'none';
+  });
+}
+
 // Старт
 checkAuth();
 render();

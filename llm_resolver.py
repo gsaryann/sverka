@@ -156,6 +156,7 @@ class YandexClient:
             )
 
         self.model = f"gpt://{self.folder_id}/{model_name}" if not model_name.startswith("gpt://") else model_name
+        self.provider = "yandex"
 
         self.client = openai.OpenAI(
             api_key=self.api_key,
@@ -213,6 +214,103 @@ class YandexClient:
                 self.total_input_tokens += inp
                 self.total_output_tokens += outp
         return resp.choices[0].message.content
+
+
+class LocalClient:
+    """Клиент для работы с локальной моделью через Ollama (OpenAI-совместимый Chat Completions API)."""
+
+    def __init__(self, base_url: Optional[str] = None, model: Optional[str] = None, timeout: Optional[float] = None):
+        self.provider: str = "local"
+        self.base_url: str = (base_url or os.environ.get("LOCAL_LLM_BASE_URL") or "http://localhost:11434/v1").rstrip("/")
+        self.model: str = (model or os.environ.get("LOCAL_LLM_MODEL") or "qwen2.5:7b-instruct").strip()
+        self.timeout: float = float(timeout) if timeout is not None else float(os.environ.get("LOCAL_LLM_TIMEOUT") or 120.0)
+        self.total_input_tokens: int = 0
+        self.total_output_tokens: int = 0
+        self._tokens_lock = threading.Lock()
+
+        try:
+            import openai as _openai
+        except (ImportError, ModuleNotFoundError):
+            _openai = None
+
+        if _openai is None or not hasattr(_openai, "OpenAI"):
+            raise RuntimeError("Не установлена библиотека openai. Выполните: pip install openai python-dotenv")
+
+        self.client = _openai.OpenAI(
+            base_url=self.base_url,
+            api_key="ollama",
+            timeout=self.timeout
+        )
+
+    def ask(self, system: str, user: str) -> str:
+        """Отправляет запрос к локальной модели через Chat Completions API."""
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                temperature=0,
+                max_tokens=1000,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user}
+                ],
+                timeout=self.timeout
+            )
+        except Exception:
+            logger.exception("Ошибка запроса к локальной модели Ollama")
+            raise
+
+        usage = getattr(resp, "usage", None)
+        if usage:
+            inp = getattr(usage, "prompt_tokens", 0) or 0
+            outp = getattr(usage, "completion_tokens", 0) or 0
+            with self._tokens_lock:
+                self.total_input_tokens += inp
+                self.total_output_tokens += outp
+        return resp.choices[0].message.content
+
+
+def make_client(provider: str = "yandex", **kwargs) -> Any:
+    """Фабрика клиентов ИИ-арбитра (допустимые провайдеры: 'yandex', 'local')."""
+    if provider == "yandex":
+        return YandexClient(**kwargs)
+    elif provider == "local":
+        return LocalClient(**kwargs)
+    else:
+        raise ValueError(f"Неизвестный провайдер ИИ: '{provider}'. Допустимые: 'yandex', 'local'.")
+
+
+def check_local_llm(base_url: Optional[str] = None, timeout: float = 5.0) -> Tuple[bool, str]:
+    """Проверяет доступность сервера Ollama и наличие скачанной модели."""
+    import urllib.request
+    import urllib.error
+
+    url = (base_url or os.environ.get("LOCAL_LLM_BASE_URL") or "http://localhost:11434/v1").rstrip("/")
+    model = (os.environ.get("LOCAL_LLM_MODEL") or "qwen2.5:7b-instruct").strip()
+    models_url = f"{url}/models"
+
+    try:
+        req = urllib.request.Request(models_url, headers={"User-Agent": "SverkaSmet/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        available_models = []
+        for item in data.get("data", []):
+            if isinstance(item, dict) and "id" in item:
+                available_models.append(item["id"])
+            elif isinstance(item, str):
+                available_models.append(item)
+        if not available_models and "models" in data:
+            for item in data.get("models", []):
+                if isinstance(item, dict) and "name" in item:
+                    available_models.append(item["name"])
+
+        found = any(m == model or m.startswith(f"{model}:") or model.startswith(f"{m}:") for m in available_models)
+        if not found:
+            return False, f"Модель '{model}' не найдена на сервере Ollama. Выполните: ollama pull {model}"
+        return True, f"Локальная модель '{model}' готова к работе."
+    except urllib.error.URLError as e:
+        return False, f"Сервер Ollama не запущен или недоступен по адресу {url}. Запустите Ollama."
+    except Exception as e:
+        return False, f"Ошибка при обращении к серверу Ollama по адресу {url}: {e}"
 
 
 def _fmt(item: Item) -> str:
@@ -480,8 +578,10 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
             ambiguity_type=r.get("ambiguity_type", "")
         )
 
+        provider_name = getattr(client, "provider", "yandex")
+        model_name = getattr(client, "model", "")
         cache_key = hashlib.sha1(
-            (getattr(client, "model", "") + "\n" + system_prompt + "\n" + prompt).encode("utf-8")
+            (provider_name + "\n" + model_name + "\n" + system_prompt + "\n" + prompt).encode("utf-8")
         ).hexdigest()
 
         tasks.append({
@@ -571,6 +671,11 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
         parsed = parse_answer(ans_text, len(t["cand_idx"]))
         if not parsed:
             stats["invalid"] += 1
+            r = t["r"]
+            r["ai_decision"] = "Модель не ответила"
+            r["ai_reason"] = "Некорректный формат ответа модели"
+            note = "Модель не ответила: некорректный формат ответа"
+            r["explanation"] = f"{r.get('explanation', '')}; {note}".strip("; ")
             continue
 
         pick, conf, reason, action = parsed
@@ -743,4 +848,10 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
     stats["input_tokens"] = getattr(client, "total_input_tokens", 0)
     stats["output_tokens"] = getattr(client, "total_output_tokens", 0)
     stats["total_tokens"] = stats["input_tokens"] + stats["output_tokens"]
+    stats["provider"] = getattr(client, "provider", "yandex")
+    stats["model"] = getattr(client, "model", "")
+    if stats["provider"] == "local":
+        stats["cost_rub"] = 0.0
+    else:
+        stats["cost_rub"] = round((stats["input_tokens"] / 1000.0) * 0.10 + (stats["output_tokens"] / 1000.0) * 0.20, 4)
     return out, stats

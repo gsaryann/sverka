@@ -52,11 +52,15 @@ def _resolve_file(path_str: str, default_folder: str = "") -> Path:
 
 def main():
     use_llm_arbitration = '--llm' in sys.argv
+    use_llm_local = '--llm-local' in sys.argv
     use_llm_weak = '--llm-weak' in sys.argv
     use_llm_only = '--llm-only' in sys.argv
-    use_llm = use_llm_arbitration or use_llm_weak or use_llm_only
+    use_llm = use_llm_arbitration or use_llm_local or use_llm_weak or use_llm_only
 
-    argv = [a for a in sys.argv if a not in ('--llm', '--llm-weak', '--llm-only')]
+    if use_llm_arbitration and use_llm_local:
+        sys.exit("Ошибка: флаги --llm и --llm-local взаимоисключающие.")
+
+    argv = [a for a in sys.argv if a not in ('--llm', '--llm-local', '--llm-weak', '--llm-only')]
     if len(argv) < 3 or len(argv) > 4:
         print(__doc__)
         sys.exit(2)
@@ -122,14 +126,23 @@ def main():
         print(f"    - {k}: {cnt}")
 
     if use_llm:
-        from llm_resolver import YandexClient, resolve
+        from llm_resolver import make_client, resolve, check_local_llm
+        provider = "local" if use_llm_local else "yandex"
+        if provider == "local":
+            ok, check_msg = check_local_llm()
+            if not ok:
+                sys.exit(f"Ошибка локальной модели: {check_msg}")
         try:
-            client = YandexClient()
+            client = make_client(provider)
         except RuntimeError as e:
             sys.exit(str(e))
         cache = 'results/llm_cache.json' if Path('results').exists() else 'llm_cache.json'
         llm_mode = "weak_only" if use_llm_weak else ("model_only" if use_llm_only else "arbitration")
-        print(f"\nЗапуск ИИ-арбитра Алисы (режим: {llm_mode})...")
+        if provider == "local":
+            model_name = getattr(client, "model", "qwen2.5:7b-instruct")
+            print(f"\nЗапуск ИИ-арбитра (локальная модель {model_name})...")
+        else:
+            print(f"\nЗапуск ИИ-арбитра Алисы (режим: {llm_mode})...")
         results, st = resolve(results, vor, lsr, client, mode=llm_mode, cache_path=cache, verbose=True)
         print(f"  Обращений к модели: {st['calls']} (из кэша: {st['cache_hits']}), "
               f"проверено коллизий: {st['ambiguities_checked']}, "
@@ -139,9 +152,14 @@ def main():
             in_t = st["input_tokens"]
             out_t = st["output_tokens"]
             tot_t = st["total_tokens"]
-            cost_rub = (in_t / 1000.0) * 0.10 + (out_t / 1000.0) * 0.20
-            print(f"  Фактический расход токенов: входящих={in_t:,}, исходящих={out_t:,}, суммарно={tot_t:,}")
-            print(f"  Расчетная стоимость вызовов по тарифу Yandex AI: {cost_rub:.2f} руб.")
+            if provider == "local":
+                cost_rub = 0.0
+                print(f"  Фактический расход токенов: входящих={in_t:,}, исходящих={out_t:,}, суммарно={tot_t:,}")
+                print(f"  Расчетная стоимость вызовов: 0.00 руб. (локальная модель)")
+            else:
+                cost_rub = (in_t / 1000.0) * 0.10 + (out_t / 1000.0) * 0.20
+                print(f"  Фактический расход токенов: входящих={in_t:,}, исходящих={out_t:,}, суммарно={tot_t:,}")
+                print(f"  Расчетная стоимость вызовов по тарифу Yandex AI: {cost_rub:.2f} руб.")
 
     rows: List[Dict[str, Any]] = []
 

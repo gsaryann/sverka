@@ -109,8 +109,12 @@
         <select id="w-mode">
           <option value="algo" selected>SmartMatcher (детерминированный v2)</option>
           <option value="hybrid">SmartMatcher + Алиса (Двухуровневый ИИ-арбитраж)</option>
+          <option value="hybrid_local">SmartMatcher + локальная модель (Ollama, без передачи документов)</option>
           <option value="hybrid_weak">Только слабый текст (Baseline)</option>
         </select>
+        <div id="ollama-hint" style="display:none; font-size:11.5px; color:var(--text-mut); margin-top:3px; line-height:1.3;">
+          ⚡ Локальный режим: требуется запущенная Ollama (localhost:11434). Документы не уходят во внешние сервисы.
+        </div>
 
         <label class="mut" for="w-thr">Порог сходства, %:</label>
         <input id="w-thr" type="number" min="20" max="95" step="5" value="55">
