@@ -1227,14 +1227,17 @@ def api_export_discrepancy_act():
     if not items:
         return jsonify({"error": "Нет данных для формирования Акта разногласий"}), 400
 
-    if user_id:
-        db = SessionLocal()
+    if user_id and SessionLocal:
         try:
-            u = db.query(User).filter(User.id == user_id).first()
-            if u and u.full_name:
-                user_name = u.full_name
-        finally:
-            db.close()
+            db = SessionLocal()
+            try:
+                u = db.query(User).filter(User.id == user_id).first()
+                if u and u.full_name:
+                    user_name = u.full_name
+            finally:
+                db.close()
+        except Exception:
+            pass
 
     excel_buf = generate_discrepancy_act_excel(items, title=title, user_name=user_name)
     from urllib.parse import quote
@@ -1402,11 +1405,25 @@ def api_project_save():
     title = data.get('title', 'Новая сверка')
     object_name = data.get('object_name', title)
     items_data = data.get('items', [])
+    if not isinstance(items_data, list) or len(items_data) > 10000:
+        return jsonify({'error': 'Некорректный формат списка позиций (максимум 10 000 позиций)'}), 400
+    for it in items_data:
+        if not isinstance(it, dict):
+            return jsonify({'error': 'Элементы списка позиций должны быть объектами'}), 400
+
     vor_fn = data.get('vor_filename')
     lsr_fn = data.get('lsr_filename')
-    total_pos = int(data.get('total_positions', len(items_data)))
-    matched_cnt = int(data.get('matched_count', 0))
-    match_rate = float(data.get('match_rate', round(matched_cnt / total_pos * 100, 1) if total_pos else 0.0))
+    try:
+        total_pos = int(data.get('total_positions', len(items_data)))
+        matched_cnt = int(data.get('matched_count', 0))
+        match_rate = float(data.get('match_rate', round(matched_cnt / total_pos * 100, 1) if total_pos else 0.0))
+        discrepancy_count = int(data.get('discrepancy_count', 0))
+        total_financial_risk = float(data.get('total_financial_risk', 0.0))
+
+        if any(math.isnan(x) or math.isinf(x) for x in (match_rate, total_financial_risk)):
+            return jsonify({'error': 'Числовые параметры не могут быть NaN или Infinity'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Некорректный формат числовых параметров проекта'}), 400
 
     db_sess = SessionLocal()
     try:
@@ -1429,8 +1446,8 @@ def api_project_save():
             lsr_filename=lsr_fn,
             total_positions=total_pos,
             matched_count=matched_cnt,
-            discrepancy_count=int(data.get('discrepancy_count', 0)),
-            total_financial_risk=float(data.get('total_financial_risk', 0.0))
+            discrepancy_count=discrepancy_count,
+            total_financial_risk=total_financial_risk
         )
         db_sess.add(project)
         db_sess.flush()
@@ -1571,6 +1588,13 @@ def open_browser():
 
 
 if __name__ == '__main__':
+    if init_db:
+        try:
+            init_db()
+            logger.info("База данных успешно инициализирована при запуске.")
+        except Exception as e:
+            logger.warning(f"Инициализация БД при запуске пропущена: {e}")
+
     port = 5000
     print(f"\nЗапуск СверкаСмет Web: http://127.0.0.1:{port}")
     print("Нажмите Ctrl+C для остановки сервера.\n")

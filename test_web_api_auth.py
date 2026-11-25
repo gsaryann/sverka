@@ -41,9 +41,17 @@ class TestWebApiAuthAndProjects(unittest.TestCase):
         self.session = SessionLocal()
 
     def tearDown(self):
-        self.session.query(AuditItem).delete()
-        self.session.query(Project).delete()
-        self.session.query(User).filter(User.email.like("api_test_%@sverkasmet.ru")).delete()
+        # 5.1: Очистка только собственных тестовых записей
+        self.session.rollback()
+        test_users = self.session.query(User).filter(User.email.like("api_test_%@sverkasmet.ru")).all()
+        test_uids = [u.id for u in test_users]
+        if test_uids:
+            test_projs = self.session.query(Project).filter(Project.user_id.in_(test_uids)).all()
+            test_pids = [p.id for p in test_projs]
+            if test_pids:
+                self.session.query(AuditItem).filter(AuditItem.project_id.in_(test_pids)).delete(synchronize_session=False)
+                self.session.query(Project).filter(Project.id.in_(test_pids)).delete(synchronize_session=False)
+            self.session.query(User).filter(User.id.in_(test_uids)).delete(synchronize_session=False)
         self.session.commit()
         self.session.close()
 

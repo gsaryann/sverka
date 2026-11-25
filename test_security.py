@@ -5,7 +5,8 @@ import io
 import math
 import openpyxl
 from pathlib import Path
-from web.web_app import app, sanitize_formula, check_login_rate_limit, _login_attempts
+from unittest.mock import patch
+from web.web_app import app, sanitize_formula, check_login_rate_limit, _login_attempts, set_user_results
 try:
     from db import SessionLocal, User, is_production
     HAS_DB = True
@@ -215,6 +216,88 @@ class TestWebLayerSecurity(unittest.TestCase):
             self.assertEqual(resp.status_code, 400)
             data = resp.get_json()
             self.assertIn("8", data.get("error", ""))
+
+    def test_demo_account_blocked_in_production_and_no_login_button(self):
+        """2.6: В login.html отсутствует кнопка автовхода demo, а в production demo заблокирован (403)."""
+        login_html_path = Path(__file__).resolve().parent / "web" / "login.html"
+        if login_html_path.exists():
+            html_text = login_html_path.read_text(encoding="utf-8")
+            self.assertNotIn("demo@sverkasmet.ru", html_text, "Кнопка демо-входа с паролем не должна присутствовать в login.html")
+
+        with app.test_client() as client:
+            with patch("web.web_app.is_production", return_value=True):
+                resp = client.post("/api/auth/login", json={
+                    "email": "demo@sverkasmet.ru",
+                    "password": "AnyPassword123!"
+                })
+                self.assertEqual(resp.status_code, 403)
+                data = resp.get_json()
+                self.assertIn("заблокирован", data.get("error", ""))
+
+    def test_export_discrepancy_act_isolated_and_empty_rejected(self):
+        """2.8: Акт разногласий строится из серверных результатов пользователя; пустой запрос дает 400."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = 88888
+
+            # Без данных на сервере и без items в теле -> 400
+            resp_empty = client.post("/api/export_discrepancy_act", json={})
+            self.assertEqual(resp_empty.status_code, 400)
+            self.assertIn("Нет данных", resp_empty.get_json().get("error", ""))
+
+            # С сохраненными серверными данными пользователя -> 200 Excel
+            user_items = [{
+                'ВОР №': '1', 'ВОР: наименование': 'Тестовая работа', 'ВОР: единица': 'м2', 'ВОР: количество': 10,
+                'ЛСР №': '1', 'ЛСР: наименование': 'Тестовая работа', 'ЛСР: единица': 'м2', 'ЛСР: количество': 12,
+                'financial_risk': 1500.0, 'unit_price': 750.0, 'Верхний статус': 'Расхождение', 'Исходный класс': 'Расхождение объема',
+                'Причина решения и расхождения': 'Тестовое расхождение'
+            }]
+            set_user_results(88888, user_items)
+            resp_ok = client.post("/api/export_discrepancy_act", json={"title": "Тестовый акт"})
+            self.assertEqual(resp_ok.status_code, 200)
+            self.assertEqual(resp_ok.mimetype, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    def test_project_save_strict_validation(self):
+        """2.10: Строгая валидация входных данных при сохранении проекта (400 при NaN, inf, мусоре)."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = 77777
+
+            # items не список или содержит не-словари
+            resp1 = client.post("/api/projects/save", json={"items": "not-a-list"})
+            self.assertEqual(resp1.status_code, 400)
+
+            resp2 = client.post("/api/projects/save", json={"items": ["not-a-dict"]})
+            self.assertEqual(resp2.status_code, 400)
+
+            # Числовые поля с NaN или inf
+            resp3 = client.post("/api/projects/save", json={"items": [], "total_financial_risk": float("nan")})
+            self.assertEqual(resp3.status_code, 400)
+
+            resp4 = client.post("/api/projects/save", json={"items": [], "total_positions": "invalid-int"})
+            self.assertEqual(resp4.status_code, 400)
+
+    def test_zip_bomb_safety_check(self):
+        """2.12: Защита от zip-бомб отвергает архивы с превышением допустимого распакованного размера."""
+        from web.web_app import validate_xlsx_safety
+        import tempfile
+        import zipfile
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tf:
+            tf_path = Path(tf.name)
+
+        try:
+            with zipfile.ZipFile(tf_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+                # Создаем файл с 200 КБ нулей, но лимит проверки ставим 100 КБ
+                large_bytes = b"0" * (200 * 1024)
+                zf.writestr("xl/worksheets/sheet1.xml", large_bytes)
+
+            with self.assertRaises(ValueError) as cm:
+                validate_xlsx_safety(tf_path, max_uncompressed_bytes=100 * 1024)
+            self.assertIn("защита от zip-бомбы", str(cm.exception).lower())
+        finally:
+            tf_path.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
