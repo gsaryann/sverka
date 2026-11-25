@@ -5,6 +5,9 @@ import sys
 import types
 import unittest
 import uuid
+import os
+import http.server
+import threading
 from pathlib import Path
 
 try:
@@ -14,7 +17,55 @@ except ImportError:                       # тесты не требуют на�
 
 from parsers import Item
 import match
-from llm_resolver import resolve, parse_answer, model_only_results, YandexClient
+from llm_resolver import (
+    resolve, parse_answer, model_only_results, YandexClient,
+    LocalClient, make_client, check_local_llm
+)
+
+
+class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
+    models = [{"id": "fake"}, {"id": "qwen2.5:7b-instruct"}]
+    chat_content = '{"action": "CONFIRM", "candidate": 1, "confidence": 0.95, "reason": "ok"}'
+    usage = {"prompt_tokens": 10, "completion_tokens": 5}
+
+    def do_GET(self):
+        if self.path.endswith("/models"):
+            body = json.dumps({"data": self.models}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        if self.path.endswith("/chat/completions"):
+            resp = {
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 1234567890,
+                "model": "qwen2.5:7b-instruct",
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": self.chat_content},
+                    "finish_reason": "stop"
+                }],
+                "usage": self.usage
+            }
+            body = json.dumps(resp).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        pass
 
 
 class Fake:
@@ -69,6 +120,18 @@ def base(vor, lsr):
 
 
 class T(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = http.server.HTTPServer(("127.0.0.1", 0), _FakeOllamaHandler)
+        cls.server_port = cls.httpd.server_port
+        cls.server_thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.server_thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+
     def setUp(self):
         self.cache_files = []
         self.cache = self._cache_file("llm_test_cache")
@@ -288,6 +351,69 @@ class T(unittest.TestCase):
         self.assertEqual(map_forward["1"], "20")
         self.assertEqual(map_reversed["1"], "20")
         self.assertEqual(map_forward, map_reversed)
+
+    def test_local_client_ask_returns_text_and_counts_tokens(self):
+        base_url = f"http://127.0.0.1:{self.server_port}/v1"
+        cli = LocalClient(base_url=base_url, model="qwen2.5:7b-instruct", timeout=10.0)
+        self.assertEqual(cli.provider, "local")
+        self.assertEqual(cli.model, "qwen2.5:7b-instruct")
+        ans = cli.ask("system", "user")
+        self.assertIn("CONFIRM", ans)
+        self.assertEqual(cli.total_input_tokens, 10)
+        self.assertEqual(cli.total_output_tokens, 5)
+
+    def test_check_local_llm_reports_unreachable(self):
+        # Закрытый порт гарантированно возвращает ошибку с упоминанием Ollama
+        ok, msg = check_local_llm(base_url="http://127.0.0.1:59999/v1", timeout=1.0)
+        self.assertFalse(ok)
+        self.assertIn("ollama", msg.lower())
+
+    def test_check_local_llm_reports_missing_model(self):
+        # На фиктивном сервере есть только 'fake' и 'qwen2.5:7b-instruct', а запрашиваем отсутствующую
+        base_url = f"http://127.0.0.1:{self.server_port}/v1"
+        old_model = os.environ.get("LOCAL_LLM_MODEL")
+        try:
+            os.environ["LOCAL_LLM_MODEL"] = "non-existent-model:latest"
+            ok, msg = check_local_llm(base_url=base_url, timeout=2.0)
+            self.assertFalse(ok)
+            self.assertIn("ollama pull", msg.lower())
+        finally:
+            if old_model is not None:
+                os.environ["LOCAL_LLM_MODEL"] = old_model
+            else:
+                os.environ.pop("LOCAL_LLM_MODEL", None)
+
+    def test_make_client_rejects_unknown_provider(self):
+        with self.assertRaises(ValueError):
+            make_client("unknown_provider")
+
+    def test_resolve_survives_non_json_local_answer(self):
+        # Локальная модель вернула текст без JSON
+        non_json_cli = Fake(lambda u: "Вот мой ответ: подходит вариант 2")
+        non_json_cli.provider = "local"
+        res, st = self.run_resolve(non_json_cli, mode="arbitration")
+        self.assertGreaterEqual(st["invalid"], 1)
+        # Строка получает пометку 'модель не ответила'
+        ambig_rows = [r for r in res if r.get("ai_decision") == "Модель не ответила"]
+        self.assertGreater(len(ambig_rows), 0)
+
+    def test_cache_not_shared_between_providers(self):
+        # Кэш не смешивает ответы разных провайдеров
+        cli_yandex = Fake(lambda u: '{"action": "CONFIRM", "candidate": 1, "confidence": 0.9, "reason": "yandex"}')
+        cli_yandex.provider = "yandex"
+        cli_yandex.model = "test-model"
+
+        cli_local = Fake(lambda u: '{"action": "REASSIGN", "candidate": 2, "confidence": 0.8, "reason": "local"}')
+        cli_local.provider = "local"
+        cli_local.model = "test-model"
+
+        cache_path = self._cache_file("shared_cache")
+        res_y, st_y = resolve(self.base, self.vor, self.lsr, cli_yandex, mode="arbitration", cache_path=cache_path, verbose=False)
+        res_l, st_l = resolve(self.base, self.vor, self.lsr, cli_local, mode="arbitration", cache_path=cache_path, verbose=False)
+
+        # Локальный клиент не должен был получить ответ Яндекса из кэша (st_l['cache_hits'] == 0, st_l['calls'] > 0)
+        self.assertEqual(st_l["cache_hits"], 0)
+        self.assertGreater(st_l["calls"], 0)
 
 
 if __name__ == "__main__":
