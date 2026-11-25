@@ -42,6 +42,9 @@ MODES = [
     ("Перемешивание строк (--shuffle)", True)
 ]
 
+# Порог незначимой разницы F1 (п.п.): если |ΔF1| < 1.0, показатели считаются практически равными
+NEGLIGIBLE_DIFF_PP = 1.0
+
 
 def get_git_hash() -> str:
     try:
@@ -121,6 +124,8 @@ def analyze_diagnostics(pv, truth, lsr, preds_smart, preds_base):
         'smart_unres_rate': len(smart_review) / total_positions if total_positions else 0.0,
         'smart_auto_prec': sum(smart_auto) / len(smart_auto) if smart_auto else 0.0,
         'smart_review_disputable_rate': sum(smart_review) / len(smart_review) if smart_review else 0.0,
+        'smart_review_disp_cnt': sum(smart_review),
+        'smart_review_cnt': len(smart_review),
         'smart_unit_correct': smart_unit_correct,
         'smart_unit_total': smart_unit_total,
 
@@ -174,6 +179,8 @@ def collect_raw_metrics():
                     "smart_unres_rate": diag["smart_unres_rate"],
                     "smart_auto_prec": diag["smart_auto_prec"],
                     "smart_review_disp": diag["smart_review_disputable_rate"],
+                    "smart_review_disp_cnt": diag["smart_review_disp_cnt"],
+                    "smart_review_cnt": diag["smart_review_cnt"],
                     "smart_unit_cor": diag["smart_unit_correct"],
                     "smart_unit_tot": diag["smart_unit_total"],
                     # Baseline
@@ -212,12 +219,12 @@ def compute_averages(raw_results):
         b_unres = sum(x["base_unres"] for x in items) / n
 
         delta_f1 = (s_f1 - b_f1) * 100.0  # в п.п.
-        if delta_f1 > 0.05:
+        if delta_f1 >= NEGLIGIBLE_DIFF_PP:
             winner = "SmartMatcher"
-        elif delta_f1 < -0.05:
+        elif delta_f1 <= -NEGLIGIBLE_DIFF_PP:
             winner = "Baseline"
         else:
-            winner = "Ничья"
+            winner = "≈ равны"
 
         averages.append({
             "set": set_name,
@@ -294,6 +301,8 @@ def compute_diagnostics_by_set(raw_results):
         b_auto_prec = (sum(x["base_auto_prec"] for x in items) / n) * 100.0
 
         s_disp_pct = (sum(x["smart_review_disp"] for x in items) / n) * 100.0
+        s_disp_cnt = sum(x["smart_review_disp_cnt"] for x in items)
+        s_rev_cnt = sum(x["smart_review_cnt"] for x in items)
 
         s_unit_cor = sum(x["smart_unit_cor"] for x in items)
         s_unit_tot = sum(x["smart_unit_tot"] for x in items)
@@ -307,6 +316,8 @@ def compute_diagnostics_by_set(raw_results):
             "smart_auto_prec": s_auto_prec,
             "base_auto_prec": b_auto_prec,
             "smart_review_disp": s_disp_pct,
+            "smart_disp_cnt": s_disp_cnt,
+            "smart_rev_cnt": s_rev_cnt,
             "smart_unit_cor": s_unit_cor,
             "smart_unit_tot": s_unit_tot,
             "base_unit_cor": b_unit_cor,
@@ -379,7 +390,7 @@ def collect_all_metrics():
             f.write(
                 f"| {d['set']} | {d['smart_unres_pct']:.2f}% / {d['base_unres_pct']:.2f}% | "
                 f"{d['smart_auto_prec']:.2f}% / {d['base_auto_prec']:.2f}% | "
-                f"{d['smart_review_disp']:.2f}% | "
+                f"{d['smart_review_disp']:.2f}% ({d['smart_disp_cnt']}/{d['smart_rev_cnt']}) | "
                 f"{d['smart_unit_cor']}/{d['smart_unit_tot']} vs {d['base_unit_cor']}/{d['base_unit_tot']} |\n"
             )
 
@@ -395,33 +406,54 @@ def collect_all_metrics():
         diag_lt = next(x for x in diagnostics if x["set"] == "Освещение")
         diag_ch = next(x for x in diagnostics if x["set"] == "Чайная")
         diag_dv = next(x for x in diagnostics if x["set"] == "Дворец")
+        diag_rm = next(x for x in diagnostics if x["set"] == "Ремонт")
+
+        min_unres = min(d["smart_unres_pct"] for d in diagnostics)
+        max_unres = max(d["smart_unres_pct"] for d in diagnostics)
 
         f.write(
             f"1. **В чём Baseline Legacy показывает более высокий $F_1$:**\n"
             f"   - На исходно упорядоченных сметах алгоритм Baseline превосходит SmartMatcher за счёт эвристического веса позиционной близости ($w_o = 0.4$):\n"
             f"     - На комплекте «Дворец» (порядок сохранён) $F_1$ составляет {avg_dv_ord['base_f1']:.4f} у Baseline против {avg_dv_ord['smart_f1']:.4f} у SmartMatcher ({avg_dv_ord['delta_f1']:+.2f} п.п.).\n"
             f"     - На комплекте «Освещение» (порядок сохранён) $F_1$ составляет {avg_lt_ord['base_f1']:.4f} у Baseline против {avg_lt_ord['smart_f1']:.4f} у SmartMatcher ({avg_lt_ord['delta_f1']:+.2f} п.п.).\n"
-            f"   - Это обусловлено тем, что в синхронно сформированных парах смета-ВОР порядковые номера строк близки, что дает Baseline безусловный бонус к оценке сходства.\n\n"
+            f"   - Вероятная причина: в синхронно сформированных парах смета-ВОР порядковые номера строк близки, что дает Baseline дополнительный эвристический бонус к оценке сходства (гипотеза требует отдельной экспериментальной проверки с $w_o = 0$).\n\n"
         )
 
+        diff_text_ch = (
+            "показатели практически равны"
+            if abs(avg_ch_shf['delta_f1']) < NEGLIGIBLE_DIFF_PP
+            else f"лидер: {avg_ch_shf['winner']}"
+        )
         f.write(
             f"2. **Устойчивость к порядку строк (деградация $F_1$):**\n"
             f"   - При случайном перемешивании строк Baseline теряет позиционный ориентир:\n"
             f"     - На комплекте «Освещение» падение $F_1$ у Baseline составляет {rob_lt['base_drop']:.2f} п.п. (с {rob_lt['base_order_f1']:.4f} до {rob_lt['base_shuf_f1']:.4f}), тогда как у SmartMatcher падение составляет {rob_lt['smart_drop']:.2f} п.п. (разница устойчивости {rob_lt['diff_robustness']:+.2f} п.п.).\n"
             f"     - На комплекте «Ремонт» падение у Baseline составляет {rob_rm['base_drop']:.2f} п.п., а у SmartMatcher — {rob_rm['smart_drop']:.2f} п.п. (разница устойчивости {rob_rm['diff_robustness']:+.2f} п.п.).\n"
-            f"     - На крупном комплекте «Чайная» при перемешивании средний $F_1$ SmartMatcher составляет {avg_ch_shf['smart_f1']:.4f}, а Baseline — {avg_ch_shf['base_f1']:.4f} ({avg_ch_shf['delta_f1']:+.2f} п.п., лидер: {avg_ch_shf['winner']}).\n\n"
+            f"     - На крупном комплекте «Чайная» при перемешивании средний $F_1$ SmartMatcher составляет {avg_ch_shf['smart_f1']:.4f}, а Baseline — {avg_ch_shf['base_f1']:.4f} ({avg_ch_shf['delta_f1']:+.2f} п.п., {diff_text_ch}).\n\n"
         )
 
         f.write(
-            f"3. **Фильтрация коллизий и защита от ложноположительных решений:**\n"
-            f"   - Baseline Legacy принудительно принимает решение по 100% строк (доля на проверку {diag_lt['base_unres_pct']:.2f}%), что делает его неспособным сигнализировать о сомнениях.\n"
-            f"   - SmartMatcher направляет на проверку инженеру или ИИ-арбитру в среднем {diag_lt['smart_unres_pct']:.2f}% позиций на «Освещении» и {diag_ch['smart_unres_pct']:.2f}% на «Чайной».\n"
-            f"   - Из отправленных на проверку позиций {diag_lt['smart_review_disp']:.2f}% на «Освещении» и {diag_ch['smart_review_disp']:.2f}% на «Чайной» действительно содержат расхождения или отсутствуют в смете.\n\n"
+            f"3. **Направление спорных позиций на проверку:**\n"
+            f"   - Точность автоматически принятых решений у Baseline выше на всех четырёх комплектах: "
+            f"«Дворец» — {diag_dv['base_auto_prec']:.2f}% против {diag_dv['smart_auto_prec']:.2f}%, "
+            f"«Освещение» — {diag_lt['base_auto_prec']:.2f}% против {diag_lt['smart_auto_prec']:.2f}%, "
+            f"«Ремонт» — {diag_rm['base_auto_prec']:.2f}% против {diag_rm['smart_auto_prec']:.2f}%, "
+            f"«Чайная» — {diag_ch['base_auto_prec']:.2f}% против {diag_ch['smart_auto_prec']:.2f}%.\n"
+            f"   - Подтверждённое свойство: SmartMatcher направляет на проверку инженеру от {min_unres:.2f}% до {max_unres:.2f}% позиций, тогда как Baseline по построению не выделяет ничего ({diag_lt['base_unres_pct']:.2f}%).\n"
+            f"   - Спорность позиций проверки (доля позиций, отправленных на проверку, у которых эталонный класс не «Совпало» или пары в ЛСР нет): "
+            f"на «Освещении» составляет {diag_lt['smart_review_disp']:.2f}% ({diag_lt['smart_disp_cnt']}/{diag_lt['smart_rev_cnt']}), "
+            f"на «Чайной» — {diag_ch['smart_review_disp']:.2f}% ({diag_ch['smart_disp_cnt']}/{diag_ch['smart_rev_cnt']}).\n"
+            f"   - При этом объёмы выборок для проверки малы (для «Чайной» порядка 6 позиций на запуск), поэтому процентные оценки спорности носят предварительный характер.\n\n"
         )
 
         f.write(
             f"4. **Точность распознавания единиц измерения:**\n"
-            f"   - Модуль физической нормализации `units.py` позволяет SmartMatcher точно классифицировать несовпадения и масштабирование единиц: на комплекте «Дворец» верно найдено {diag_dv['smart_unit_cor']}/{diag_dv['smart_unit_tot']} расхождений единиц против {diag_dv['base_unit_cor']}/{diag_dv['base_unit_tot']} у Baseline.\n"
+            f"   - По данным таблицы 3, верно найдено расхождений единиц у SmartMatcher / Baseline: "
+            f"«Дворец» — {diag_dv['smart_unit_cor']}/{diag_dv['smart_unit_tot']} против {diag_dv['base_unit_cor']}/{diag_dv['base_unit_tot']}, "
+            f"«Освещение» — {diag_lt['smart_unit_cor']}/{diag_lt['smart_unit_tot']} против {diag_lt['base_unit_cor']}/{diag_lt['base_unit_tot']}, "
+            f"«Ремонт» — {diag_rm['smart_unit_cor']}/{diag_rm['smart_unit_tot']} против {diag_rm['base_unit_cor']}/{diag_rm['base_unit_tot']}, "
+            f"«Чайная» — {diag_ch['smart_unit_cor']}/{diag_ch['smart_unit_tot']} против {diag_ch['base_unit_cor']}/{diag_ch['base_unit_tot']}.\n"
+            f"   - SmartMatcher на трёх комплектах показывает результат слегка хуже Baseline, а на одном («Ремонт») — поровну.\n"
         )
 
     print(f"\nТаблица средних метрик успешно сохранена в: {out_md}")

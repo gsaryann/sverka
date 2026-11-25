@@ -193,7 +193,7 @@ class TestCoreAndParsers(unittest.TestCase):
                 )
 
     def test_metrics_conclusions_match_table(self):
-        """Задача 1 (Задание 3): каждое число из раздела аналитических выводов встречается в таблицах отчёта."""
+        """Задача 1 (Задание 3, 4): верификация соответствия раздела 4 таблицам отчёта."""
         import re
         metrics_dir = ROOT_DIR / "docs" / "metrics"
         f1_files = sorted(metrics_dir.glob("f1_*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -206,6 +206,24 @@ class TestCoreAndParsers(unittest.TestCase):
         tables_text = parts[0]
         concl_text = parts[1]
 
+        # 1. Запрещённая субъективная формулировка (Задание 4)
+        self.assertNotIn(
+            "действительно содержат", concl_text,
+            "В разделе 4 недопустима субъективная формулировка 'действительно содержат'!"
+        )
+
+        # 2. Проверка отсутствия слова «лидер» при |ΔF1| < 1,0 п.п. (Задание 4)
+        for line in concl_text.splitlines():
+            if "лидер" in line.lower():
+                match_delta = re.search(r'([-+]?\d+\.\d+)\s*п\.п\.', line)
+                if match_delta:
+                    diff_val = abs(float(match_delta.group(1)))
+                    self.assertGreaterEqual(
+                        diff_val, 1.0,
+                        f"Слово 'лидер' недопустимо при незначимой разнице ({diff_val} < 1.0 п.п.) в строке: {line}"
+                    )
+
+        # 3. Все числа в разделе 4 есть в таблицах
         floats = re.findall(r'\b0\.\d{4}\b', concl_text)
         pcts = re.findall(r'\b\d+\.\d+%', concl_text)
         pps = re.findall(r'[-+]?\d+\.\d+\s*п\.п\.', concl_text)
