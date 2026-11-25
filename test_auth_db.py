@@ -11,16 +11,24 @@
 
 import unittest
 from decimal import Decimal
-from sqlalchemy.exc import IntegrityError
-from db import (
-    SessionLocal, User, AuditProject, Project,
-    Document, MatchResult, AuditItem, LLMLog, init_db
-)
+
+try:
+    from sqlalchemy.exc import IntegrityError
+    from db import (
+        SessionLocal, User, AuditProject, Project,
+        Document, MatchResult, AuditItem, LLMLog, init_db
+    )
+    HAS_DB = True
+except (ImportError, ModuleNotFoundError):
+    HAS_DB = False
+    SessionLocal = User = AuditProject = Project = Document = MatchResult = AuditItem = LLMLog = init_db = None
 
 
 class TestAuthAndSecurity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not HAS_DB or SessionLocal is None:
+            raise unittest.SkipTest("SQLAlchemy или db недоступны: тесты БД пропущены.")
         try:
             from sqlalchemy import text
             sess = SessionLocal()

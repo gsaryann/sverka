@@ -228,7 +228,7 @@ class TestDocumentUploadValidation(unittest.TestCase):
     """Тесты классификации типов загружаемых книг и валидации пар ВОР/ЛСР."""
 
     def test_all_sample_pairs_pass_validation(self):
-        from web.web_app import _document_kind, _validate_document_pair
+        from doc_validation import _document_kind, _validate_document_pair
         from pathlib import Path
         data_dir = Path("data")
         pairs = [
@@ -246,7 +246,7 @@ class TestDocumentUploadValidation(unittest.TestCase):
                 self.assertIsNone(err, f"Пара {v_name} + {l_name} ошибочно заблокирована: {err}")
 
     def test_guard_catches_swapped_and_duplicate_files(self):
-        from web.web_app import _validate_document_pair
+        from doc_validation import _validate_document_pair
         from pathlib import Path
         data_dir = Path("data")
         vp = data_dir / "ВОР.xlsx"

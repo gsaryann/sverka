@@ -16,6 +16,33 @@ import match
 DATA_DIR = Path("data")
 
 class TestCoreAndParsers(unittest.TestCase):
+    def test_llm_resolver_imports_without_openai(self):
+        """Задача 2: без openai импорт llm_resolver не должен вызывать SystemExit, а вызов YandexClient бросает RuntimeError."""
+        import sys
+        import importlib
+        orig_openai = sys.modules.get('openai')
+        try:
+            sys.modules['openai'] = None  # блокирует импорт openai (ModuleNotFoundError / ImportError)
+            if 'llm_resolver' in sys.modules:
+                del sys.modules['llm_resolver']
+
+            # Должен импортироваться успешно, без SystemExit
+            mod = importlib.import_module('llm_resolver')
+            self.assertIsNotNone(mod)
+
+            # А вызов клиента должен давать RuntimeError
+            with self.assertRaises(RuntimeError) as ctx:
+                mod.YandexClient(api_key="fake", folder_id="fake")
+            self.assertIn("openai", str(ctx.exception).lower())
+        finally:
+            if orig_openai is not None:
+                sys.modules['openai'] = orig_openai
+            elif 'openai' in sys.modules:
+                del sys.modules['openai']
+            if 'llm_resolver' in sys.modules:
+                del sys.modules['llm_resolver']
+            importlib.import_module('llm_resolver')
+
     def test_perturb_resets_caches(self):
         """4.1: perturb.make_set должен сбрасывать name_norm и characteristics при замене имени."""
         item = Item(doc="LSR", row=1, num="1", ref="ГЭСН 01", name="Разработка грунта экскаватором 0.5 м3", unit="м3", qty=100.0)

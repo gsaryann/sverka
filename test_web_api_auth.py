@@ -12,12 +12,19 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from web.web_app import app
-from db import init_db, SessionLocal, User, Project, AuditItem
+try:
+    from db import init_db, SessionLocal, User, Project, AuditItem
+    HAS_DB = True
+except (ImportError, ModuleNotFoundError):
+    HAS_DB = False
+    init_db = SessionLocal = User = Project = AuditItem = None
 
 
 class TestWebApiAuthAndProjects(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not HAS_DB or SessionLocal is None:
+            raise unittest.SkipTest("SQLAlchemy или db недоступны: тесты API авторизации пропущены.")
         try:
             from sqlalchemy import text
             sess = SessionLocal()

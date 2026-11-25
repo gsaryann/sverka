@@ -36,8 +36,8 @@ if _env_path.exists():
 
 try:
     import openai
-except ImportError:
-    raise SystemExit('Не установлена библиотека openai. Выполните: pip install openai python-dotenv')
+except (ImportError, ModuleNotFoundError):
+    openai = None
 
 from parsers import Item
 from match import similarity, evaluate_pair, apply_formulation_warnings
@@ -145,6 +145,9 @@ class YandexClient:
                           os.environ.get("YANDEX_CLOUD_FOLDER") or DEFAULT_FOLDER).strip()
         model_name = (model or os.environ.get("YANDEX_MODEL") or
                       os.environ.get("YANDEX_CLOUD_MODEL") or DEFAULT_MODEL).strip()
+
+        if openai is None:
+            raise RuntimeError('Не установлена библиотека openai. Выполните: pip install openai python-dotenv')
 
         if not self.api_key or not self.folder_id:
             raise RuntimeError(

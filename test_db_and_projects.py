@@ -1,13 +1,22 @@
 import unittest
 import os
 from unittest.mock import patch
-from db import LLMLog, Base, is_production
+
+try:
+    from db import LLMLog, Base, is_production
+    HAS_DB = True
+except (ImportError, ModuleNotFoundError):
+    HAS_DB = False
+    LLMLog = Base = is_production = None
+
 from web.web_app import format_rows
 from parsers import Item
 
 class TestDatabaseAndProjects(unittest.TestCase):
     def test_llm_log_decision_allows_long_text(self):
         """3.2: LLMLog.decision должен поддерживать длинные тексты (>100 символов)."""
+        if not HAS_DB:
+            self.skipTest("SQLAlchemy или db недоступны.")
         long_name = "Ремонт штукатурки внутренних стен известково-гипсовым раствором по камню и бетону площадью отдельных мест более 10 м2 с приготовлением раствора"
         self.assertGreater(len(long_name), 100)
         log = LLMLog(
@@ -20,6 +29,8 @@ class TestDatabaseAndProjects(unittest.TestCase):
 
     def test_llm_log_tokens_and_cost_allow_null(self):
         """3.3: LLMLog должен позволять None/NULL для токенов и стоимости."""
+        if not HAS_DB:
+            self.skipTest("SQLAlchemy или db недоступны.")
         log = LLMLog(
             project_id=1,
             vor_name="ВОР",
