@@ -848,4 +848,10 @@ def resolve(results: List[Dict[str, Any]], vor: List[Item], lsr: List[Item], cli
     stats["input_tokens"] = getattr(client, "total_input_tokens", 0)
     stats["output_tokens"] = getattr(client, "total_output_tokens", 0)
     stats["total_tokens"] = stats["input_tokens"] + stats["output_tokens"]
+    stats["provider"] = getattr(client, "provider", "yandex")
+    stats["model"] = getattr(client, "model", "")
+    if stats["provider"] == "local":
+        stats["cost_rub"] = 0.0
+    else:
+        stats["cost_rub"] = round((stats["input_tokens"] / 1000.0) * 0.10 + (stats["output_tokens"] / 1000.0) * 0.20, 4)
     return out, stats

@@ -327,5 +327,75 @@ class TestWebLayerSecurity(unittest.TestCase):
                 self.assertNotIn('custom_flag', sess)
 
 
+    def test_compare_hybrid_local_unreachable_returns_clear_error(self):
+        """Задача 2: при выключенной Ollama режим hybrid_local возвращает 503 и понятную ошибку."""
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess['user_id'] = 9999
+            sess['user_email'] = 'test_local@sverkasmet.ru'
+            sess['user_role'] = 'user'
+
+        vor_path = Path(__file__).parent / "data" / "ВОР.xlsx"
+        lsr_path = Path(__file__).parent / "data" / "ЛСР.xlsx"
+        with patch.dict(os.environ, {"LOCAL_LLM_BASE_URL": "http://127.0.0.1:59999/v1"}), \
+             open(vor_path, "rb") as f_v, open(lsr_path, "rb") as f_l:
+            data = {
+                "vor": (f_v, "ВОР.xlsx"),
+                "lsr": (f_l, "ЛСР.xlsx"),
+                "mode": "hybrid_local",
+                "threshold": "0.55"
+            }
+            resp = client.post("/api/compare", data=data, content_type="multipart/form-data")
+            self.assertEqual(resp.status_code, 503)
+            res_json = resp.get_json()
+            self.assertIn("error", res_json)
+            self.assertIn("error_id", res_json)
+            self.assertIn("ollama", res_json["error"].lower())
+
+    def test_compare_hybrid_local_uses_local_client(self):
+        """Задача 2: режим hybrid_local использует LocalClient, provider=='local', cost_rub==0, без YandexClient."""
+        import http.server
+        import threading
+        from test_llm_resolver import _FakeOllamaHandler
+
+        httpd = http.server.HTTPServer(("127.0.0.1", 0), _FakeOllamaHandler)
+        port = httpd.server_port
+        t = threading.Thread(target=httpd.serve_forever, daemon=True)
+        t.start()
+        try:
+            client = app.test_client()
+            with client.session_transaction() as sess:
+                sess['user_id'] = 9999
+                sess['user_email'] = 'test_local@sverkasmet.ru'
+                sess['user_role'] = 'user'
+
+            vor_path = Path(__file__).parent / "data" / "ВОР.xlsx"
+            lsr_path = Path(__file__).parent / "data" / "ЛСР.xlsx"
+            with patch.dict(os.environ, {
+                "LOCAL_LLM_BASE_URL": f"http://127.0.0.1:{port}/v1",
+                "LOCAL_LLM_MODEL": "qwen2.5:7b-instruct"
+            }), patch("llm_resolver.YandexClient") as mock_yandex, \
+                 open(vor_path, "rb") as f_v, open(lsr_path, "rb") as f_l:
+                data = {
+                    "vor": (f_v, "ВОР.xlsx"),
+                    "lsr": (f_l, "ЛСР.xlsx"),
+                    "mode": "hybrid_local",
+                    "threshold": "0.55"
+                }
+                resp = client.post("/api/compare", data=data, content_type="multipart/form-data")
+                self.assertEqual(resp.status_code, 200)
+                res_json = resp.get_json()
+                self.assertIn("stats", res_json)
+                llm_stats = res_json["stats"].get("llm_stats")
+                self.assertIsNotNone(llm_stats)
+                self.assertEqual(llm_stats.get("provider"), "local")
+                self.assertEqual(llm_stats.get("cost_rub"), 0)
+                # Убеждаемся, что YandexClient не создавался и внешних запросов не было
+                mock_yandex.assert_not_called()
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+
 if __name__ == "__main__":
     unittest.main()

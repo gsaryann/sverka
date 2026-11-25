@@ -32,9 +32,9 @@ def run_benchmark(sets: List[Tuple[str, str]], seeds=(1, 2, 3),
     algo_name = "Baseline (TF-IDF + w_o=0.4 + w_q=0.3)" if use_legacy else "SmartMatcher (Модульный алгоритм v2)"
     client = None
     if llm:
-        from llm_resolver import YandexClient, resolve, model_only_results
+        from llm_resolver import make_client, resolve, model_only_results
         try:
-            client = YandexClient()
+            client = make_client("yandex")
         except RuntimeError as e:
             sys.exit(str(e))
         algo_name = ("Только модель (YandexGPT)" if llm == 'only'
