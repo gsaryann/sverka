@@ -385,5 +385,21 @@ class TestFormulationWarnings(unittest.TestCase):
         self.assertEqual(duplicate['cls'], 'Дубль')
 
 
+class TestNoHintsMeasurement(unittest.TestCase):
+    def test_dvorets_no_hints_algo_counts(self):
+        """С очищенным ref на data/ВОР.xlsx и data/ЛСР.xlsx: 71 верно, 0 неверно, 15 без пары."""
+        from tools.measure_no_hints import run_algo
+        s = run_algo()
+        self.assertEqual(s['total_vor'], 86)
+        self.assertEqual(s['correct'], 71)
+        self.assertEqual(s['wrong'], 0)
+        self.assertEqual(s['no_pair'], 15)
+        self.assertEqual(s['cls_counts'].get('Совпало'), 46)
+        self.assertEqual(s['cls_counts'].get('Совпало (с пересчетом единиц)'), 22)
+        self.assertEqual(s['cls_counts'].get('Кандидат — требуется проверка'), 2)
+        self.assertEqual(s['cls_counts'].get('Расхождение объёма'), 1)
+        self.assertEqual(s['cls_counts'].get('Нет в рассматриваемой смете'), 15)
+
+
 if __name__ == '__main__':
     unittest.main()
