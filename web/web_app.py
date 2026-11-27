@@ -35,6 +35,7 @@ import math
 from collections import OrderedDict
 from functools import wraps
 from flask import Flask, request, jsonify, Response, stream_with_context, session, redirect
+from werkzeug.exceptions import HTTPException
 def is_production() -> bool:
     env = os.getenv("ENV", "").strip().lower()
     flask_env = os.getenv("FLASK_ENV", "").strip().lower()
@@ -137,6 +138,56 @@ def request_entity_too_large(e):
         'error_message': 'Максимальный допустимый размер сметного документа составляет 32 МБ.',
         'error_hint': 'Разбейте смету на разделы или уменьшите размер файла перед загрузкой.'
     }), 413
+
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e):
+    if isinstance(e, HTTPException):
+        return e
+    if request.path.startswith('/api/'):
+        return error_response('Внутренняя ошибка сервера', 500)
+    raise e
+
+
+_DB_UNAVAILABLE_MSG = 'База данных недоступна. Проверьте, что PostgreSQL запущена и параметры подключения в .env верны'
+
+_db_err_types = [OSError]
+try:
+    from sqlalchemy.exc import SQLAlchemyError as _SQLAlchemyError
+    _db_err_types.append(_SQLAlchemyError)
+except ImportError:
+    pass
+try:
+    import psycopg2 as _psycopg2
+    _db_err_types.append(_psycopg2.Error)
+except ImportError:
+    pass
+_DB_ERRORS = tuple(_db_err_types)
+
+
+def check_db_connection() -> Tuple[bool, str]:
+    """Проверяет доступность PostgreSQL без раскрытия паролей и адресов."""
+    if SessionLocal is None:
+        return False, _DB_UNAVAILABLE_MSG
+    db_sess = None
+    try:
+        db_sess = SessionLocal()
+        if text is not None:
+            db_sess.execute(text("SELECT 1"))
+        else:
+            db_sess.execute("SELECT 1")
+        return True, "База данных доступна"
+    except _DB_ERRORS:
+        return False, _DB_UNAVAILABLE_MSG
+    finally:
+        if db_sess is not None:
+            db_sess.close()
+
+
+@app.route('/api/health', methods=['GET'])
+def api_health():
+    db_ok, _ = check_db_connection()
+    return jsonify({'ok': True, 'db': bool(db_ok)}), 200
 
 
 # Конфигурация безопасности сессий и секретного ключа
@@ -1319,8 +1370,12 @@ def api_register():
     # Администратор и lead назначаются только вручную администратором БД.
     role = 'estimator'
 
-    db_sess = SessionLocal()
+    if SessionLocal is None:
+        return error_response(_DB_UNAVAILABLE_MSG, 503)
+
+    db_sess = None
     try:
+        db_sess = SessionLocal()
         if db_sess.query(User).filter_by(email=email).first():
             return jsonify({'error': 'Пользователь с таким email уже зарегистрирован'}), 400
 
@@ -1338,8 +1393,11 @@ def api_register():
         session.clear()
         session['user_id'] = user.id
         return jsonify({'ok': True, 'user': user.to_dict()}), 201
+    except _DB_ERRORS:
+        return error_response(_DB_UNAVAILABLE_MSG, 503)
     finally:
-        db_sess.close()
+        if db_sess is not None:
+            db_sess.close()
 
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -1358,8 +1416,12 @@ def api_login():
     if is_production() and email == 'demo@sverkasmet.ru':
         return jsonify({'error': 'Вход под демонстрационным аккаунтом заблокирован в production-окружении'}), 403
 
-    db_sess = SessionLocal()
+    if SessionLocal is None:
+        return error_response(_DB_UNAVAILABLE_MSG, 503)
+
+    db_sess = None
     try:
+        db_sess = SessionLocal()
         user = db_sess.query(User).filter_by(email=email).first()
         if not user or not user.check_password(password):
             session.clear()
@@ -1368,8 +1430,11 @@ def api_login():
         session.clear()
         session['user_id'] = user.id
         return jsonify({'ok': True, 'user': user.to_dict()})
+    except _DB_ERRORS:
+        return error_response(_DB_UNAVAILABLE_MSG, 503)
     finally:
-        db_sess.close()
+        if db_sess is not None:
+            db_sess.close()
 
 
 @app.route('/api/auth/logout', methods=['POST'])
@@ -1384,12 +1449,19 @@ def api_me():
     if not user_id:
         return jsonify({'user': None})
 
-    db_sess = SessionLocal()
+    if SessionLocal is None:
+        return error_response(_DB_UNAVAILABLE_MSG, 503)
+
+    db_sess = None
     try:
+        db_sess = SessionLocal()
         user = db_sess.query(User).filter_by(id=user_id).first()
         return jsonify({'user': user.to_dict() if user else None})
+    except _DB_ERRORS:
+        return error_response(_DB_UNAVAILABLE_MSG, 503)
     finally:
-        db_sess.close()
+        if db_sess is not None:
+            db_sess.close()
 
 
 @app.route('/api/projects', methods=['GET'])
@@ -1640,6 +1712,10 @@ if __name__ == '__main__':
             logger.info("База данных успешно инициализирована при запуске.")
         except Exception as e:
             logger.warning(f"Инициализация БД при запуске пропущена: {e}")
+            print(
+                "ВНИМАНИЕ: база данных недоступна. Вход и сохранение проектов работать не будут. "
+                "Запустите PostgreSQL и проверьте DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS в .env"
+            )
 
     port = 5000
     print(f"\nЗапуск СверкаСмет Web: http://127.0.0.1:{port}")

@@ -261,6 +261,30 @@
       box.style.display = 'block';
     }
 
+    async function postAuthJson(url, payload, fallbackMsg) {
+      let res;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (err) {
+        return { ok: false, error: 'Сервер не отвечает. Проверьте, что программа запущена' };
+      }
+      let data;
+      try {
+        data = await res.json();
+      } catch (err) {
+        return { ok: false, error: `Сервер вернул непонятный ответ (код ${res.status})` };
+      }
+      if (!res.ok) {
+        const msg = data.error || fallbackMsg;
+        return { ok: false, error: data.error_id ? `${msg} (код ${data.error_id})` : msg };
+      }
+      return { ok: true, data };
+    }
+
     async function handleLogin(e) {
       e.preventDefault();
       const email = document.getElementById('l-email').value.trim();
@@ -269,24 +293,13 @@
       btn.textContent = 'Проверка доступа...';
       btn.disabled = true;
 
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          showError(data.error || 'Ошибка авторизации');
-          btn.textContent = 'Войти в рабочее место';
-          btn.disabled = false;
-        } else {
-          window.location.href = '/app';
-        }
-      } catch (err) {
-        showError('Ошибка связи с сервером');
+      const result = await postAuthJson('/api/auth/login', { email, password }, 'Ошибка авторизации');
+      if (!result.ok) {
+        showError(result.error);
         btn.textContent = 'Войти в рабочее место';
         btn.disabled = false;
+      } else {
+        window.location.href = '/app';
       }
     }
 
@@ -301,24 +314,13 @@
       btn.textContent = 'Регистрация в PostgreSQL...';
       btn.disabled = true;
 
-      try {
-        const res = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ full_name, email, company, role, password })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          showError(data.error || 'Ошибка регистрации');
-          btn.textContent = 'Зарегистрировать аккаунт';
-          btn.disabled = false;
-        } else {
-          window.location.href = '/app';
-        }
-      } catch (err) {
-        showError('Ошибка связи с базой данных');
+      const result = await postAuthJson('/api/auth/register', { full_name, email, company, role, password }, 'Ошибка регистрации');
+      if (!result.ok) {
+        showError(result.error);
         btn.textContent = 'Зарегистрировать аккаунт';
         btn.disabled = false;
+      } else {
+        window.location.href = '/app';
       }
     }
   </script>

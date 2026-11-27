@@ -472,6 +472,132 @@ class TestWebLayerSecurity(unittest.TestCase):
             ping_count = body.count(": ping")
             self.assertLess(ping_count, 3)
 
+    def _make_failing_session_factory(self, secret_exc_msg: str, exc_cls=OSError):
+        class FailingSession:
+            def query(self, *args, **kwargs):
+                raise exc_cls(secret_exc_msg)
+
+            def execute(self, *args, **kwargs):
+                raise exc_cls(secret_exc_msg)
+
+            def close(self):
+                pass
+
+        return lambda: FailingSession()
+
+    def test_login_returns_503_json_when_db_unavailable(self):
+        """При недоступной БД POST /api/auth/login возвращает 503 JSON с error_id и без утечки исключения."""
+        secret_msg = "FATAL: password authentication failed for user secret_pg_pass"
+        client = app.test_client()
+        with patch("web.web_app.SessionLocal", self._make_failing_session_factory(secret_msg)):
+            resp = client.post("/api/auth/login", json={"email": "u@example.com", "password": "Password123!"})
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.content_type, "application/json")
+        data = resp.get_json()
+        self.assertIn("error", data)
+        self.assertIn("error_id", data)
+        self.assertIn("postgresql", data["error"].lower())
+        self.assertNotIn(secret_msg, json.dumps(data, ensure_ascii=False))
+
+    def test_register_returns_503_json_when_db_unavailable(self):
+        """При недоступной БД POST /api/auth/register возвращает 503 JSON с error_id и без утечки исключения."""
+        secret_msg = "could not connect to server: secret_db_host:5432"
+        client = app.test_client()
+        with patch("web.web_app.SessionLocal", self._make_failing_session_factory(secret_msg)):
+            resp = client.post("/api/auth/register", json={
+                "email": "u2@example.com",
+                "password": "Password123!",
+                "full_name": "Тестов Тест"
+            })
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.content_type, "application/json")
+        data = resp.get_json()
+        self.assertIn("error", data)
+        self.assertIn("error_id", data)
+        self.assertIn("postgresql", data["error"].lower())
+        self.assertNotIn(secret_msg, json.dumps(data, ensure_ascii=False))
+
+    def test_me_returns_503_json_when_db_unavailable(self):
+        """При недоступной БД GET /api/auth/me (с сессией) возвращает 503 JSON с error_id."""
+        secret_msg = "connection refused secret_db_host:5432"
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = 123
+        with patch("web.web_app.SessionLocal", self._make_failing_session_factory(secret_msg)):
+            resp = client.get("/api/auth/me")
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.content_type, "application/json")
+        data = resp.get_json()
+        self.assertIn("error", data)
+        self.assertIn("error_id", data)
+        self.assertIn("postgresql", data["error"].lower())
+        self.assertNotIn(secret_msg, json.dumps(data, ensure_ascii=False))
+
+    def test_unhandled_exception_in_api_returns_json_500(self):
+        """Необработанное исключение под /api/* возвращает JSON 500 с error_id, а не HTML."""
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = 9999
+        with patch("web.web_app.SessionLocal", side_effect=RuntimeError("boom_secret_detail")):
+            resp = client.get("/api/projects")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.content_type, "application/json")
+        data = resp.get_json()
+        self.assertIn("error", data)
+        self.assertIn("error_id", data)
+        self.assertNotIn("boom_secret_detail", json.dumps(data, ensure_ascii=False))
+
+    def test_check_db_connection_reports_unreachable(self):
+        """При недоступной БД check_db_connection() возвращает (False, текст) без пароля из DB_PASS."""
+        from web.web_app import check_db_connection
+        secret_pass = "SuperSecretDbPass987!"
+        with patch.dict(os.environ, {"DB_PASS": secret_pass}), \
+             patch("web.web_app.SessionLocal", self._make_failing_session_factory(f"auth failed for {secret_pass}")):
+            ok, msg = check_db_connection()
+        self.assertFalse(ok)
+        self.assertTrue(len(msg) > 0)
+        self.assertNotIn(secret_pass, msg)
+
+    def test_health_endpoint_reports_db_state(self):
+        """GET /api/health возвращает 200 с db: false при недоступной БД и без секретов."""
+        secret_pass = "AnotherSecretDbPass123!"
+        client = app.test_client()
+        with patch.dict(os.environ, {"DB_PASS": secret_pass}), \
+             patch("web.web_app.SessionLocal", self._make_failing_session_factory(f"bad pass {secret_pass}")):
+            resp = client.get("/api/health")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data.get("ok"))
+        self.assertFalse(data.get("db"))
+        self.assertNotIn(secret_pass, json.dumps(data, ensure_ascii=False))
+
+    def test_login_returns_503_on_psycopg2_operational_error(self):
+        """Реальная ошибка psycopg2.OperationalError (fe_sendauth) возвращает 503 JSON с error_id."""
+        import pytest
+        psycopg2 = pytest.importorskip("psycopg2")
+        secret_msg = "fe_sendauth: no password supplied"
+        client = app.test_client()
+        with patch("web.web_app.SessionLocal", self._make_failing_session_factory(secret_msg, psycopg2.OperationalError)):
+            resp = client.post("/api/auth/login", json={"email": "u@example.com", "password": "Password123!"})
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.content_type, "application/json")
+        data = resp.get_json()
+        self.assertIn("error", data)
+        self.assertIn("error_id", data)
+        self.assertNotIn(secret_msg, json.dumps(data, ensure_ascii=False))
+
+    def test_login_non_db_exception_returns_json_500(self):
+        """Постороннее исключение (ValueError) внутри api_login уходит в общий обработчик 500, а не 503."""
+        client = app.test_client()
+        with patch("web.web_app.SessionLocal", self._make_failing_session_factory("unexpected_logic_bug", ValueError)):
+            resp = client.post("/api/auth/login", json={"email": "u@example.com", "password": "Password123!"})
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.content_type, "application/json")
+        data = resp.get_json()
+        self.assertIn("error", data)
+        self.assertIn("error_id", data)
+        self.assertNotIn("unexpected_logic_bug", json.dumps(data, ensure_ascii=False))
+
 
 if __name__ == "__main__":
     unittest.main()
