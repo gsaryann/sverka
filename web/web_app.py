@@ -152,6 +152,31 @@ def handle_unhandled_exception(e):
 _DB_UNAVAILABLE_MSG = 'База данных недоступна. Проверьте, что PostgreSQL запущена и параметры подключения в .env верны'
 
 
+def check_db_connection() -> Tuple[bool, str]:
+    """Проверяет доступность PostgreSQL без раскрытия паролей и адресов."""
+    if SessionLocal is None:
+        return False, _DB_UNAVAILABLE_MSG
+    db_sess = None
+    try:
+        db_sess = SessionLocal()
+        if text is not None:
+            db_sess.execute(text("SELECT 1"))
+        else:
+            db_sess.execute("SELECT 1")
+        return True, "База данных доступна"
+    except Exception:
+        return False, _DB_UNAVAILABLE_MSG
+    finally:
+        if db_sess is not None:
+            db_sess.close()
+
+
+@app.route('/api/health', methods=['GET'])
+def api_health():
+    db_ok, _ = check_db_connection()
+    return jsonify({'ok': True, 'db': bool(db_ok)}), 200
+
+
 # Конфигурация безопасности сессий и секретного ключа
 COMPROMISED_KEYS = {
     "sverkasmet-secure-key-2026-b2b",
@@ -1674,6 +1699,10 @@ if __name__ == '__main__':
             logger.info("База данных успешно инициализирована при запуске.")
         except Exception as e:
             logger.warning(f"Инициализация БД при запуске пропущена: {e}")
+            print(
+                "ВНИМАНИЕ: база данных недоступна. Вход и сохранение проектов работать не будут. "
+                "Запустите PostgreSQL и проверьте DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS в .env"
+            )
 
     port = 5000
     print(f"\nЗапуск СверкаСмет Web: http://127.0.0.1:{port}")

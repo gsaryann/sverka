@@ -544,6 +544,30 @@ class TestWebLayerSecurity(unittest.TestCase):
         self.assertIn("error_id", data)
         self.assertNotIn("boom_secret_detail", json.dumps(data, ensure_ascii=False))
 
+    def test_check_db_connection_reports_unreachable(self):
+        """При недоступной БД check_db_connection() возвращает (False, текст) без пароля из DB_PASS."""
+        from web.web_app import check_db_connection
+        secret_pass = "SuperSecretDbPass987!"
+        with patch.dict(os.environ, {"DB_PASS": secret_pass}), \
+             patch("web.web_app.SessionLocal", self._make_failing_session_factory(f"auth failed for {secret_pass}")):
+            ok, msg = check_db_connection()
+        self.assertFalse(ok)
+        self.assertTrue(len(msg) > 0)
+        self.assertNotIn(secret_pass, msg)
+
+    def test_health_endpoint_reports_db_state(self):
+        """GET /api/health возвращает 200 с db: false при недоступной БД и без секретов."""
+        secret_pass = "AnotherSecretDbPass123!"
+        client = app.test_client()
+        with patch.dict(os.environ, {"DB_PASS": secret_pass}), \
+             patch("web.web_app.SessionLocal", self._make_failing_session_factory(f"bad pass {secret_pass}")):
+            resp = client.get("/api/health")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data.get("ok"))
+        self.assertFalse(data.get("db"))
+        self.assertNotIn(secret_pass, json.dumps(data, ensure_ascii=False))
+
 
 if __name__ == "__main__":
     unittest.main()
