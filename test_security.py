@@ -472,10 +472,13 @@ class TestWebLayerSecurity(unittest.TestCase):
             ping_count = body.count(": ping")
             self.assertLess(ping_count, 3)
 
-    def _make_failing_session_factory(self, secret_exc_msg: str):
+    def _make_failing_session_factory(self, secret_exc_msg: str, exc_cls=OSError):
         class FailingSession:
             def query(self, *args, **kwargs):
-                raise RuntimeError(secret_exc_msg)
+                raise exc_cls(secret_exc_msg)
+
+            def execute(self, *args, **kwargs):
+                raise exc_cls(secret_exc_msg)
 
             def close(self):
                 pass
@@ -567,6 +570,33 @@ class TestWebLayerSecurity(unittest.TestCase):
         self.assertTrue(data.get("ok"))
         self.assertFalse(data.get("db"))
         self.assertNotIn(secret_pass, json.dumps(data, ensure_ascii=False))
+
+    def test_login_returns_503_on_psycopg2_operational_error(self):
+        """Реальная ошибка psycopg2.OperationalError (fe_sendauth) возвращает 503 JSON с error_id."""
+        import pytest
+        psycopg2 = pytest.importorskip("psycopg2")
+        secret_msg = "fe_sendauth: no password supplied"
+        client = app.test_client()
+        with patch("web.web_app.SessionLocal", self._make_failing_session_factory(secret_msg, psycopg2.OperationalError)):
+            resp = client.post("/api/auth/login", json={"email": "u@example.com", "password": "Password123!"})
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.content_type, "application/json")
+        data = resp.get_json()
+        self.assertIn("error", data)
+        self.assertIn("error_id", data)
+        self.assertNotIn(secret_msg, json.dumps(data, ensure_ascii=False))
+
+    def test_login_non_db_exception_returns_json_500(self):
+        """Постороннее исключение (ValueError) внутри api_login уходит в общий обработчик 500, а не 503."""
+        client = app.test_client()
+        with patch("web.web_app.SessionLocal", self._make_failing_session_factory("unexpected_logic_bug", ValueError)):
+            resp = client.post("/api/auth/login", json={"email": "u@example.com", "password": "Password123!"})
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.content_type, "application/json")
+        data = resp.get_json()
+        self.assertIn("error", data)
+        self.assertIn("error_id", data)
+        self.assertNotIn("unexpected_logic_bug", json.dumps(data, ensure_ascii=False))
 
 
 if __name__ == "__main__":

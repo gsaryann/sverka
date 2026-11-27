@@ -151,6 +151,19 @@ def handle_unhandled_exception(e):
 
 _DB_UNAVAILABLE_MSG = 'База данных недоступна. Проверьте, что PostgreSQL запущена и параметры подключения в .env верны'
 
+_db_err_types = [OSError]
+try:
+    from sqlalchemy.exc import SQLAlchemyError as _SQLAlchemyError
+    _db_err_types.append(_SQLAlchemyError)
+except ImportError:
+    pass
+try:
+    import psycopg2 as _psycopg2
+    _db_err_types.append(_psycopg2.Error)
+except ImportError:
+    pass
+_DB_ERRORS = tuple(_db_err_types)
+
 
 def check_db_connection() -> Tuple[bool, str]:
     """Проверяет доступность PostgreSQL без раскрытия паролей и адресов."""
@@ -164,7 +177,7 @@ def check_db_connection() -> Tuple[bool, str]:
         else:
             db_sess.execute("SELECT 1")
         return True, "База данных доступна"
-    except Exception:
+    except _DB_ERRORS:
         return False, _DB_UNAVAILABLE_MSG
     finally:
         if db_sess is not None:
@@ -1380,7 +1393,7 @@ def api_register():
         session.clear()
         session['user_id'] = user.id
         return jsonify({'ok': True, 'user': user.to_dict()}), 201
-    except Exception:
+    except _DB_ERRORS:
         return error_response(_DB_UNAVAILABLE_MSG, 503)
     finally:
         if db_sess is not None:
@@ -1417,7 +1430,7 @@ def api_login():
         session.clear()
         session['user_id'] = user.id
         return jsonify({'ok': True, 'user': user.to_dict()})
-    except Exception:
+    except _DB_ERRORS:
         return error_response(_DB_UNAVAILABLE_MSG, 503)
     finally:
         if db_sess is not None:
@@ -1444,7 +1457,7 @@ def api_me():
         db_sess = SessionLocal()
         user = db_sess.query(User).filter_by(id=user_id).first()
         return jsonify({'user': user.to_dict() if user else None})
-    except Exception:
+    except _DB_ERRORS:
         return error_response(_DB_UNAVAILABLE_MSG, 503)
     finally:
         if db_sess is not None:
